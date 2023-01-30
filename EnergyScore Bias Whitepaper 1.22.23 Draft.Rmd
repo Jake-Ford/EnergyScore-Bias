@@ -1,0 +1,2003 @@
+---
+output: 
+  pdf_document:
+    citation_package: natbib
+    keep_tex: true
+    fig_caption: true
+    latex_engine: pdflatex
+    template: svm-latex-ms.tex
+bibliography: master.bib
+header-includes:
+  -  \usepackage{hyperref}
+  - \usepackage{array}   
+  - \usepackage{caption}
+  - \usepackage{graphicx}
+  - \usepackage{siunitx}
+  - \usepackage[table]{xcolor}
+  - \usepackage{multirow}
+  - \usepackage{hhline}
+  - \usepackage{calc}
+  - \usepackage{tabularx}
+  - \usepackage{fontawesome}
+  - \usepackage[para,online,flushleft]{threeparttable}
+  - \usepackage{float}
+  - \floatplacement{figure}{H}
+biblio-style: apsr
+title: "EnergyScore Bias Research"
+thanks: "Replication files are available on the author's Github account (http://github.com/Jake-Ford). **Current version**: `r format(Sys.time(), '%B %d, %Y')`; **Corresponding author**: jake@solstice.us."
+author:
+- name: Jacob Ford
+  affiliation: Solstice Power Technologies
+abstract: "Using data on over 800,000 utility payment performance records, we apply quantitative measurements previously identified to measure bias in classification algorithms and consider additional protected classes previously lacking attention, including race, income, home ownership status, and education levels. We find that relative to FICO scores, variance in a machine learning model for most scenarios considered."
+keywords: "bias, machine learning, equal opportunity"
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+geometry: margin=1in
+fontfamily: libertine
+fontsize: 11pt
+# spacing: double
+endnote: no
+always_allow_html: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE,
+                      message=FALSE, warning=FALSE,
+                      fig.path='figs/',
+                      cache.path = '_cache/',
+                      fig.process = function(x) {
+                      x2 = sub('-\\d+([.][a-z]+)$', '\\1', x)
+                      if (file.rename(x, x2)) x2 else x
+                      })
+```
+
+
+
+
+
+# Introduction
+
+As the use of machine learning algorithms continues to spread across industries, concerns about the potential for these algorithms to amplify existing biases have become increasingly relevant. To address this, various techniques for measuring and mitigating bias in machine learning models have been developed. This case study focuses on evaluating the level of bias within a risk assessment algorithm and comparing it to the traditional credit score model. The study employs the algorithmic fairness definitions put forth by @DBLP:journals/corr/HardtPS16 and aims to achieve two objectives: first, to assess the level of bias using traditional fairness criteria and second, to conduct a novel analysis by extending the number of protected classes considered. The results of this study will provide a quantitative comparison of the degree of discrimination faced by different protected classes in this specific use case.
+
+
+## Related Work
+
+Fairness through unawareness, an approach to race-neutral threshold setting in multiple industries, has been widely criticized for being ineffective. @DBLP:journals/corr/abs-1104-3913. argue that researchers should embrace protected classes in the data to achieve a more accurate analysis of fairness. A similarity metric is used to describe the degree of similarity between individuals or groups, thereby revealing the ground truth of the distribution of the protected class. However, cases where protected class data is unavailable are not considered in this review.
+
+Similarly, @pmlr-v28-zemel13 acknowledge that bias cannot be completely eliminated from data or models, and that machine learning systems trained on historical data will inevitably inherit past biases. To address this, the authors propose a new algorithm that maps individuals to a probability distribution while preserving as much information as possible, while minimizing loss of identifiable information. The results of this algorithm show improved accuracy and significant fairness, as measured by both individual and group definitions, compared to comparison models.
+
+Furthermore, a recent study @DBLP:journals/corr/abs-1901-10002 highlights the importance of considering the entire life cycle of machine learning analysis to understand and mitigate sources of bias. The authors argue that blaming unfair results on biased data oversimplifies the complex processes involved in collecting, cleaning, processing, and modeling the data. These processes involve multiple human decisions that can collectively contribute to unintended results. The authors aim to increase awareness and focus on the cumulative sources of bias in machine learning, leading to the development of mitigation techniques.
+
+
+## EnergyScore
+
+
+The machine learning algorithm, EnergyScore, has previously been described by @NBERw26178. I employ the original dataset used to create EnergyScore. To allow for an analysis of protected classes and to avoid data leakage, I use the training datset to construct and re-train  the model, using the test dataset to quantify the effects on different protected classes. 
+
+EnergyScore was shown to be a more inclusive and accurate predictor of utility bill payment performance than a traditional credit score. This research will determine the extent to how different protected classes face discriminatory thresholds, using EnergyScore as the treatment compared to the tradiitionally used credit score. 
+
+
+
+# Methods
+
+## Data
+
+The machine learning model analyzed in this study is EnergyScore, a patent-pending risk assessment tool designed as an alternative to traditional credit scores. Previous work has shown the increase in overall accuracy and inclusion, particularly for low-to-moderate (LMI) populations @NBERw26178. 
+
+This study uses the data used to train EnergyScore. Account-level credit account data collected between December 2009 and November 2016. Overall, over 800,000 observations of utility payment performance were collected across all fifty states and the District of Columbia. Credit history data, including FICO scores but also related utility payment performance history, was included as input variables. 
+
+
+## Descriptive Statistics
+
+Summary statistics are presented below in Table  \ref{tab:desctab} for the four relevant variables used in this analysis: race, home ownership, education and race. Totals may not equal due to missing data. Notably, race suffers from a large degree of data marked as 'other', comprising 91.6% of the total. This category was dropped in the threshold analysis in the 'Results' section, so is not reported here. 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+library(rmdformats)
+library(ggplot2)
+library(dplyr)
+library(readxl)
+library(reshape)
+require(gridExtra)
+library(kableExtra)
+library(missRanger)
+source("./helper_functions.R")
+
+library(plotly)
+options(scipen = 100)
+
+
+# ========================================================================================
+# Sample data comes from the joined Experion + Axciom Data used to create the EnergyScore. 
+# 
+# For efficiency, only relevant variables needed for this analysis are included in the 'full_data.csv'. These include unique ID (RECORD_NB), tag for 90 days late (DPD90_KEYCD) and a related unused definition (DPD90_KEYCD_24), FICO Scores (FICOCLV8_SCORE), income (axciom7641_1), education status (axciom7650_1), homeowner status, (axciom7606_1), race (axciom9528) and a race with collapsed categories (axiom3101), along with the EnergyScore, which is a probability of late payment within 90 days. Note, the 90 days late is the key DV. 
+#
+# ========================================================================================
+
+
+## Race = axciom9528
+# Race Code - 1st Individual
+# A = Asian
+# B = Black
+# C = Chinese
+# H = Hispanic
+# I = American Indian
+# N = Japanese
+# O = Other
+# P = Portuguese
+# W = White
+
+
+##Race - Low Detail axiom3101
+# Race Code (Low Detail)
+# A = A - Asian
+# B = B - African American
+# H = H - Hispanic
+# W = W - White/Other
+
+
+
+## Homeowner = `axciom7606_1`
+
+# OwnerRenter
+# O = Home Owner
+# R = Renter
+
+## Income = axciom7641_1
+
+# Income
+# 1 = Less than $15,000
+# 2 = $15,000 - $19,999
+# 3 = $20,000 - $29,999
+# 4 = $30,000 - $39,999
+# 5 = $40,000 - $49,999
+# 6 = $50,000 - $74,999
+# 7 = $75,000 - $99,999
+# 8 = $100,000 - $124,999
+# 9 = Greater than $124,999
+
+
+## Education = axciom7650_1
+
+# Education
+# 1 = Completed High School
+# 2 = Completed College
+# 3 = Completed Graduate School
+# 4 = Attended Vocational/Technical
+
+
+sample_data <- read.csv('/Volumes/GoogleDrive/Shared drives/*Solstice | Shared Project/The EnergyScore/Google Bias Fairness Analysis/Master ES Dataset/Stata/full_data.csv')
+
+output = read.csv("/Volumes/GoogleDrive/My Drive/EnergyScore/Bias/Full Dataset/Archive/EnergyScore_output_jf_test_4.5.22.csv", header=FALSE)
+names(output)[1] <- "Prob_Not_Def"
+names(output)[2] <- "Prob_Def"
+
+output$RECORD_NB <- sample_data$RECORD_NB
+
+joined <- merge(sample_data,output, by="RECORD_NB")
+drop(sample_data)
+drop(output)
+
+
+## There are two Race variables in the data set: https://docs.google.com/spreadsheets/d/1WpOzqD7lTUWzq3PcbAOayJQrAU3xbNpw/edit#gid=1630953880
+
+# Note: the variable used in the white paper is axciom9528, which has a large 'other' population, looks to have been combined with general white population in the other race category, axiom3101; pros and cons to each, however to avoid simply lumping 'other' into white, and to maintain consistency with previous work, will use axciom9528 
+
+joined <- joined %>% 
+  mutate( 
+    Race = case_when(
+      axciom9528 == "A" | axciom9528 == "C" | axciom9528 == "N"  ~ "Asian" ,
+      axciom9528 == "B" ~ "Black",
+      axciom9528 == "H" ~ "Hispanic",
+      axciom9528 == "W" ~ "White"),
+    Race2 = case_when(
+      axciom3101 =="A" ~ "Asian",
+      axciom3101 == "B" ~ "Black",
+      axciom3101 == "H" ~ "Hispanic",
+      axciom3101 == "W" ~ "White"),
+    Education = case_when(
+      axciom7650_1 == 1 ~ "High School",
+      axciom7650_1 == 2 ~ "College",
+      axciom7650_1 == 3 ~ "Graduate School", 
+      axciom7650_1 == 4 ~ "Vocational/Technical"
+    ),
+    EnergyScore = Prob_Not_Def*100,
+    dummy=1,
+  HomeOwnership = case_when(
+      axciom7606_1 =="O" ~ "Own",
+      axciom7606_1 == "R" ~ "Rent"
+    ))
+
+
+joined <- joined %>%
+  mutate(Income = case_when(
+    axciom7641_1 <=4 ~ "Low",
+    axciom7641_1 == 5 | axciom7641_1 ==6 ~ "Medium",
+    axciom7641_1 > 6 ~ "High"
+  )) 
+
+joined$Income <- factor(joined$Income, labels=c("Low", "Medium", "High"))
+
+race_data <- joined %>%
+  filter(!is.na(Race))
+
+```
+
+
+
+
+<style>
+### Table 1
+{
+   display: none;
+ }
+</style>
+
+
+```{r desctab, echo=FALSE,fig.cap="\\label{tab:desctab}Descriptive Statistics"}
+
+#Late
+late_table <- joined %>%
+  mutate(Late_Payment = case_when(
+    DPD90_KEYCD == 1 ~ "Late",
+    DPD90_KEYCD == 0 ~ "Not Late"
+  )) %>%
+  group_by(Variable = Late_Payment) %>%
+  summarize(N=n(),
+            `Average FICO` = mean(FICOCLV8_SCORE, na.rm=T),
+            `Late Payment %` = NA) %>%
+  mutate(Frequency = paste0(round(N/sum(N)*100, 1),"%")) %>%
+  relocate(Frequency, .after = N) 
+
+#Race
+race_table <- joined %>%
+  group_by(Variable = Race) %>%
+  filter(!is.na(Race)) %>%
+  summarize(N=n(),
+            `Average FICO` = mean(FICOCLV8_SCORE, na.rm=T),
+            `Late Payment %` = mean(DPD90_KEYCD, na.rm=T)) %>%
+  mutate(Frequency = paste0(round(N/sum(N)*100, 1),"%")) %>%
+  relocate(Frequency, .after = N) 
+
+#Homeowner
+hs_table <- joined %>%
+  group_by(Variable=HomeOwnership) %>%
+  filter(!is.na(HomeOwnership)) %>%
+  summarize(N=n(),
+            `Average FICO` = mean(FICOCLV8_SCORE, na.rm=T),
+            `Late Payment %` = mean(DPD90_KEYCD, na.rm=T)) %>%
+  mutate(Frequency = paste0(round(N/sum(N)*100, 1),"%")) %>%
+  relocate(Frequency, .after = N)
+
+#Income
+income_table <- joined %>%
+  group_by(Variable=Income) %>%
+  filter(!is.na(Income)) %>%
+  summarize(N=n(),
+            `Average FICO` = mean(FICOCLV8_SCORE, na.rm=T),
+            `Late Payment %` = mean(DPD90_KEYCD, na.rm=T)) %>%
+  mutate(Frequency = paste0(round(N/sum(N)*100, 1),"%")) %>%
+  relocate(Frequency, .after = N) 
+
+# Education
+edu_table <- joined %>%
+  group_by(Variable=Education) %>%
+  filter(!is.na(Education)) %>%
+  summarize(N=n(),
+            `Average FICO` = mean(FICOCLV8_SCORE, na.rm=T),
+            `Late Payment %` = mean(DPD90_KEYCD, na.rm=T)) %>%
+  mutate(Frequency = paste0(round(N/sum(N)*100, 1),"%")) %>%
+  relocate(Frequency, .after = N)
+
+temp <- rbind(late_table, race_table)
+temp <- rbind(temp, hs_table)
+temp <- rbind(temp, income_table)
+temp <- rbind(temp, edu_table)
+
+kable( temp,
+  digits = 3, format.args = list(big.mark = ",",scientific = FALSE),
+ # list(race_table, hs_table),
+  caption = 'Descriptive Statistics') %>%
+    kable_paper("striped", full_width =T) %>%
+#  booktabs = TRUE, valign = 't') 
+  pack_rows("Late Payment", 1, 2) %>%
+  pack_rows("Race", 3, 6) %>%
+  pack_rows("Home Ownershp", 7,8) %>%
+  pack_rows("Income", 9,10) %>%
+  pack_rows("Education", 11,15)
+```
+
+
+
+
+
+
+To more accurately and inclusively quantify risk, several regression and machine learning algorithms were trained to predict risk of default payment. The best performing model was a random forest construction, which recorded the highest accuracy scores. This model also produced higher profits for lenders, as the EnergyScore provides a much more holistic metric on an individual's ability to pay utility bills. This better captures those individuals who would have been rejected due to lower FICO scores but able to pay (false negatives) while minimizing those who would have been accepted and failed to pay (false positives). Finally, the EnergyScore increases access for LMI customers, as an increase in both effectiveness for a larger applicant pool and an efficient manner of quantifying risk of late payment.
+
+Case studies are useful illustrations of levels of bias measurable in machine learning applications. This research follows the approach of @DBLP:journals/corr/HardtPS16, building upon their work in two distinct areas. First, we compare bias measurements for the machine learning algorithm (EnergyScore) and the counterfactual where credit scores are applied. Secondly, we extend the analysis across multiple protected classes; including race, income, education and homeownership status. 
+
+
+## Bias Measurements
+
+Quantitative measurements of bias and fairness are provided for both EnergyScore and the comparison FICO score. Bias will be measured by disparate effects on sub-groups in threshold scenarios. Additionally, the threshold scenarios can be completed by optimizing either FICO scores or EnergyScore. For simplicity, FICO scores are first used in the scenarios, EnergyScore will next be used. This will allow both a baseline observation of how both metrics perform at bias measurements, and a comparison to determine how EnergyScore performs in fairness measurements compared to FICO cutoffs.
+
+Using the methodology designed by @DBLP:journals/corr/HardtPS16, the following scenarios will be applied to our protected classes: 
+
+### Profit Maximization
+
+
+Maximum Profits assumes that lenders will seek to minimize false positives. Hence, a cutoff for applicants is required.  A FICO cutoff of 620 is used for good credit as classified by the Consumer Financial Protection Bureau. From the Non-default rate/FICO score graph below, setting the setting the FICO score to 620 results in the *total* non-default rate of 59%; or the default rate to 41%. Hence, for profit maximization we will set the FICO scores accordingly so that each group achieves maximum 41% default rate. Notice how from the graph below, individual FICO cutoffs will differ widely, Hispanics having the lowest and Whites having the highest. 
+ 
+To arrive at the EnergyScore threshold, the computation includes analyzing the share of the group approved, then setting the EnergyScore threshold to the same proportion. This concept is seen in the idea of demographic parity, and was taken from the EnergyScore [whitepaper](https://solstice.us/wp-content/uploads/EnergyScore-White-Paper-1.pdf). 
+
+
+
+
+```{r echo=FALSE, message=TRUE, warning=FALSE}
+### FICO
+pm_threshold = 0.823216
+fico_range <- seq(350,850,50)
+
+race_data <- joined %>%
+  filter(!is.na(Race))
+
+ndr_df <- data.frame(FICO = fico_range)
+
+
+for (i in 1:length(ndr_df$FICO))
+{
+    temp_fico = ndr_df$FICO[i]
+
+    ndr_df$Total[i] <- prop.table(table(race_data$DPD90_KEYCD[(race_data$FICOCLV8_SCORE>temp_fico)]))[1]
+    ndr_df$White[i] <- prop.table(table(race_data$DPD90_KEYCD[(race_data$FICOCLV8_SCORE>temp_fico) & (race_data$Race=="White")]))[1]
+    ndr_df$Black[i] <- prop.table(table(race_data$DPD90_KEYCD[(race_data$FICOCLV8_SCORE>temp_fico) & (race_data$Race=="Black")]))[1]
+    ndr_df$Hispanic[i] <- prop.table(table(race_data$DPD90_KEYCD[(race_data$FICOCLV8_SCORE>temp_fico) & (race_data$Race=="Hispanic")]))[1]
+    ndr_df$Asian[i] <- prop.table(table(race_data$DPD90_KEYCD[(race_data$FICOCLV8_SCORE>temp_fico) & (race_data$Race=="Asian")]))[1]
+
+   
+
+}
+
+
+temp_pm <- reshape2::melt(ndr_df, id.var='FICO')
+
+
+profit_max_fico <- ggplot(temp_pm, aes(x=FICO, y=value, color=variable))+geom_line() +theme_classic()+
+  geom_hline(yintercept=pm_threshold, linetype='dotted',col='black')+
+  xlab('FICO Score') + ylab('Non-Default Rate') + labs(color='') + ggtitle("Profit Maximization Threshold Visualization")
+```
+
+
+
+
+
+
+
+
+<style>
+#### EnergyScore
+{
+   display: none;
+ }
+</style>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+#EnergyScore
+
+es_range <- seq(0,100,5)
+
+ndr_df_es <- data.frame(ES = es_range)
+
+
+for (i in 1:length(ndr_df_es$ES))
+{
+
+    ndr_df_es$Total[i] <- prop.table(table(race_data$DPD90_KEYCD[(race_data$EnergyScore >= ndr_df_es$ES[i])]))[1]
+    ndr_df_es$White[i] <- prop.table(table(race_data$DPD90_KEYCD[(race_data$EnergyScore>=ndr_df_es$ES[i]) & (race_data$Race=="White")]))[1]
+    ndr_df_es$Black[i] <- prop.table(table(race_data$DPD90_KEYCD[(race_data$EnergyScore>=ndr_df_es$ES[i]) & (race_data$Race=="Black")]))[1]
+    ndr_df_es$Hispanic[i] <- prop.table(table(race_data$DPD90_KEYCD[(race_data$EnergyScore>=ndr_df_es$ES[i]) & (race_data$Race=="Hispanic")]))[1]
+    ndr_df_es$Asian[i] <- prop.table(table(race_data$DPD90_KEYCD[(race_data$EnergyScore>=ndr_df_es$ES[i]) & (race_data$Race=="Asian")]))[1]
+
+   
+
+}
+
+
+temp_pm <- reshape2::melt(ndr_df_es, id.var='ES')
+
+
+profit_max_es <- ggplot(temp_pm, aes(x=ES, y=value, color=variable))+geom_line() +theme_classic()+
+  geom_hline(yintercept=pm_threshold, linetype='dotted',col='black')+
+  xlab('EnergyScore') + ylab('Non-Default Rate') + labs(color='') 
+#+ ggtitle("Profit Maximization Threshold: EnergyScore")
+```
+
+```{r eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+
+
+
+p <- ggplot(data=es_df, aes(x=Variables, y=Thresholds))+geom_bar(stat='identity') + theme_minimal() + ggtitle("Profit Maximization EnergyScores")+ ylab("EnergyScore")
+
+ggplotly(p)
+```
+
+
+<style>
+##### Figure 1
+{
+   display: none;
+ }
+</style>
+
+```{r profitmax, echo=FALSE, fig.width=5,fig.height=4,fig.cap="\\label{fig:profitmax}Profit Maximization Threshold"}
+
+
+grid.arrange(profit_max_fico, profit_max_es, nrow=2)
+
+```
+ 
+In Figure \ref{fig:profitmax} we see the non-default rates plotted with various levels of FICO threshold cutoffs. To arrive at the EnergyScore threshold, the computation includes analyzing the share of the groupapproved, then setting the EnergyScore threshold to the same proportion. 
+
+
+ 
+ 
+### Race Blind
+ 
+Similar to maximum profits, but only apply single threshold to all groups; hence all groups will be applied the same threshold of 620 for FICO. Hence, in threshold comparison section at end of each group, no variation will be observed. 
+ 
+  
+### Demographic Parity
+ 
+This theory sets the thresholds different for each group such that the proportion of accepted is equal across all groups. This leads to divergent thresholds per group. The graph below shows the same cumulative distribution curves. In demographic parity constraints, the threshold is calculated by setting the proportion of population above that valye. Figure \ref{fig:demparity} below visualizes the result, as different subgroups, race in this instance, would receive different thresholds.
+ 
+ 
+
+<style>
+##### Figure 2
+{
+   display: none;
+ }
+</style> 
+ 
+```{r demparity, echo=FALSE, fig.width=5,fig.height=4,fig.cap="\\label{fig:demparity}Demographic Parity Threshold"}
+
+
+# Total
+temp <- joined %>%
+  ## add bins
+  mutate(FICO_Bin = cut(FICOCLV8_SCORE, breaks=seq(400, 850, 50))) %>%
+  filter(axciom9528 !=0) %>%
+  filter(!is.na(FICO_Bin)) %>%
+  filter(FICOCLV8_SCORE > 0) %>%
+  mutate( 
+    dummy = 1,
+    Race = case_when(
+    axciom9528 == "A"| axciom9528=="C" ~ "Asian",
+    axciom9528 == "B" ~ "Black",
+    axciom9528 == "H" ~ "Hispanic",
+    axciom9528 == "W" ~ "White"
+  ))  %>%
+  filter(!is.na(Race)) %>%
+  group_by(FICO_Bin) %>%
+  summarize(total = n(),
+            total_asian = sum(Race=="Asian", na.rm=T),
+            total_white = sum(Race=="White", na.rm=T),
+            total_black = sum(Race=="Black", na.rm=T),
+            total_hispanic = sum(Race=="Hispanic", na.rm=T)) %>%
+  mutate(new_bins = seq(450,850,50) ,
+         total_cdf = cumsum(total/sum(total)),
+         total_cdf_asian = cumsum(total_asian/sum(total_asian)),
+         total_cdf_white = cumsum(total_white/sum(total_white)),
+         total_cdf_black = cumsum(total_black/sum(total_black)),
+         total_cdf_hispanic = cumsum(total_hispanic/sum(total_hispanic))) %>%
+  select(new_bins, Total = total_cdf, Asian = total_cdf_asian, White = total_cdf_white, Black = total_cdf_black, Hispanic = total_cdf_hispanic)
+
+
+
+
+temp <- reshape2::melt(temp, id.var='new_bins')
+  
+ggplot(temp, aes(x=new_bins, y=value, color=variable))+geom_line() +theme_classic()+
+  xlab('FICO Score') + ylab('Fraction of group below') + labs(color='') + ggtitle("Cumulative Distribution Function")   +geom_vline(xintercept=700, linetype='dotted', col = 'black') +
+  geom_hline(yintercept=temp$value[temp$new_bins==700 & temp$variable=="Total"], linetype='dotted',col='black')
+
+
+```
+
+
+### Equal Opportunity
+ 
+The true positive rate in data science field refers to the proportion of those approved by a threshold who do not default; i.e. the true paying individuals who are approved. Hence, this criteria sets the true positive rate equal across all groups. In the graph below, the true positive rate is shown with varying levels of FICO score cutoffs. In the example, the developer would choose a true positive level, in the below 70%, and apply the varying thresholds accordingly. 
+
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+just_positives <- joined %>%
+  filter(DPD90_KEYCD==0) %>%
+  filter(!is.na(Race))
+
+
+true_positive <- data.frame(fico = seq(450,850,5))
+
+true_positive$Total <- NA
+true_positive$Asian <- NA
+true_positive$Black <- NA
+true_positive$Hispanic <- NA
+true_positive$White <- NA
+
+for ( i in 1:length(true_positive$fico)){
+  
+  true_positive$Total[i] <- sum(just_positives$FICOCLV8_SCORE > true_positive$fico[i])/nrow(just_positives) *100
+  true_positive$Asian[i] <- sum(just_positives$FICOCLV8_SCORE[just_positives$Race=="Asian"] > true_positive$fico[i])/ sum(just_positives$Race=="Asian")*100
+  true_positive$Black[i] <- sum(just_positives$FICOCLV8_SCORE[just_positives$Race=="Black"] > true_positive$fico[i])/ sum(just_positives$Race=="Black")*100
+  true_positive$Hispanic[i] <- sum(just_positives$FICOCLV8_SCORE[just_positives$Race=="Hispanic"] > true_positive$fico[i])/ sum(just_positives$Race=="Hispanic")*100
+  true_positive$White[i] <- sum(just_positives$FICOCLV8_SCORE[just_positives$Race=="White"] > true_positive$fico[i])/ sum(just_positives$Race=="White")*100
+  
+}
+
+
+t <- reshape2::melt(true_positive, id.var='fico')
+  
+tp_plot_fico <- ggplot(t, aes(x=value, y=fico, color=variable))+geom_line() +theme_classic()+
+  ylab('FICO Score') + xlab('True Positive Rate') + labs(color='') + ggtitle("True Positive Rate and FICO Score by Race") +    geom_vline(xintercept=70, linetype='dotted', col = 'black') + coord_flip() 
+
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+    es_range <- seq(0,100,1)
+    
+    tp_df <- data.frame(EnergyScore = es_range)
+    
+
+      for (i in 1:length(tp_df$EnergyScore))
+        
+      {
+        
+        EnergyScore_i = tp_df$EnergyScore[i]
+        
+        tp_df$Total[i] <- sum((race_data$EnergyScore > tp_df$EnergyScore[i]) & race_data$DPD90_KEYCD==0 )/sum(race_data$DPD90_KEYCD==0)* 100
+        
+        tp_df$White[i] <- sum((race_data$EnergyScore > tp_df$EnergyScore[i]) & (race_data$DPD90_KEYCD==0) &
+                                (race_data$Race=="White"))/sum(race_data$DPD90_KEYCD==0 & race_data$Race=="White")* 100
+        
+        tp_df$White[i] <- sum((race_data$EnergyScore > tp_df$EnergyScore[i]) & (race_data$DPD90_KEYCD==0) &
+                                (race_data$Race=="White"))/sum(race_data$DPD90_KEYCD==0 & race_data$Race=="White")* 100
+        
+        tp_df$Black[i] <- sum((race_data$EnergyScore > tp_df$EnergyScore[i]) & (race_data$DPD90_KEYCD==0) &
+                                (race_data$Race=="Black"))/sum(race_data$DPD90_KEYCD==0 & race_data$Race=="Black")* 100
+        
+        tp_df$Asian[i] <- sum((race_data$EnergyScore > tp_df$EnergyScore[i]) & (race_data$DPD90_KEYCD==0) &
+                                (race_data$Race=="Asian"))/sum(race_data$DPD90_KEYCD==0 & race_data$Race=="Asian")* 100
+        
+        tp_df$Hispanic[i] <- sum((race_data$EnergyScore > tp_df$EnergyScore[i]) & (race_data$DPD90_KEYCD==0) &
+                                   (race_data$Race=="Hispanic"))/sum(race_data$DPD90_KEYCD==0 & race_data$Race=="Hispanic")* 100
+      }
+      
+      
+  t <- reshape2::melt(tp_df, id.var='EnergyScore')
+  
+tp_plot_es <- ggplot(t, aes(x=value, y=EnergyScore, color=variable))+geom_line() +theme_classic()+
+  ylab('EnergyScore') + xlab('True Positive Rate') + labs(color='') + ggtitle("True Positive Rate and EnergyScore by Race") +    geom_vline(xintercept=70, linetype='dotted', col = 'black') + coord_flip() 
+
+```
+
+<style>
+#### Figure 3
+{
+   display: none;
+ }
+</style> 
+ 
+```{r equalop, echo=FALSE, fig.width=5,fig.height=4,fig.cap="\\label{fig:equalop}Equal Opportunity Threshold"}
+grid.arrange(tp_plot_fico, tp_plot_es, nrow=2)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Results
+
+To quantify how the four protected classes of interest are treated under the four threshold construction scenarios, we provide the following results. First, the thresholds for each protected class are shown on a continuum of the respective metrics range. This shows the relative difference in treatments within a particular metric. 
+
+Secondly, Intra-Group percentiles are shown to compare how individuals within a particular protected class are treated within the four threshold scenarios. For example, in Figure \ref{fig:intra} the percentile value of the threshold is graphed. This second finding critically shows how individual protected classes are treated differently between the threshold scenarios. 
+
+Finally, the false positive curves are plotted. These visualize the predictive accuracy of the respective metric, particularly relevant here for organizations extending credit opportunities, as these examples represent errant approvals with associated losses. 
+
+
+## Thresholds
+
+
+
+<style>
+### Race
+{
+   display: none;
+ }
+</style>
+
+
+
+
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# EnergyScore 
+
+es_df <- profit_max_thresh("EnergyScore", "Race", 0.823)
+
+es_df <- es_df %>%
+  rename("Profit Max" = "Thresholds" ,
+         "Race" = "Variables") %>%
+  mutate("Race Blind" = 1) %>%
+  mutate("Demographic Parity" = NA,
+         "Equal Opportunity" = NA) %>%
+  filter(Race !="Total")
+
+temp_thresh = 0.7
+
+es_df$`Demographic Parity` = c(demo_parity_thresh("Race", "White", temp_thresh)[[1]][2],
+            demo_parity_thresh("Race", "Asian", temp_thresh)[[1]][2],
+            demo_parity_thresh("Race", "Black", temp_thresh)[[1]][2],
+            demo_parity_thresh("Race", "Hispanic", temp_thresh)[[1]][2])
+
+temp <- equ_op_thresh("EnergyScore","Race", 90)
+
+
+es_df$`Equal Opportunity`[es_df$Race=="White"] <- temp$Thresholds[temp$Variables=="White"]
+es_df$`Equal Opportunity`[es_df$Race=="Black"] <- temp$Thresholds[temp$Variables=="Black"]
+es_df$`Equal Opportunity`[es_df$Race=="Hispanic"] <- temp$Thresholds[temp$Variables=="Hispanic"]
+es_df$`Equal Opportunity`[es_df$Race=="Asian"] <- temp$Thresholds[temp$Variables=="Asian"]
+
+bar_data_race_es <- reshape2::melt(es_df, id.var='Race') 
+
+bar_data_race_es$Population <- NA
+bar_data_race_es$Percentage <- NA
+
+for (i in 1:length(bar_data_race_es$Race))
+  
+{
+  
+  bar_data_race_es$Population[i] <- sum(joined$dummy[joined$Race==bar_data_race_es$Race[i] & 
+                                                  joined$EnergyScore >= bar_data_race_es$value[i]], na.rm=T)
+  
+  bar_data_race_es$Percentage[i] <- bar_data_race_es$Population[i]/sum(joined$dummy[joined$Race==bar_data_race_es$Race[i]],
+                                                                 na.rm=T)
+  
+  bar_data_race_es$TP_Percentage[i] <- sum(joined$dummy[joined$Race==bar_data_race_es$Race[i] &
+                                                          joined$EnergyScore >= bar_data_race_es$value[i] &
+                                                          joined$DPD90_KEYCD==0], na.rm=T)/bar_data_race_es$Population[i]
+  
+}
+
+# FICO 
+
+fico_df <- profit_max_thresh("FICO", "Race", 0.823)
+
+fico_df <- fico_df %>%
+  rename("Profit Max" = "Thresholds",
+         "Race" = "Variables") %>%
+  mutate("Race Blind" = 620) %>%
+  mutate("Demographic Parity" = NA,
+         "Equal Opportunity" = NA) %>%
+  filter(Race !="Total")
+
+temp_thresh = 0.7
+
+fico_df$`Demographic Parity` = c(demo_parity_thresh("Race", "White", temp_thresh)[[1]][1],
+            demo_parity_thresh("Race", "Asian", temp_thresh)[[1]][1],
+            demo_parity_thresh("Race", "Black", temp_thresh)[[1]][1],
+            demo_parity_thresh("Race", "Hispanic", temp_thresh)[[1]][1])
+
+temp <- equ_op_thresh("FICO","Race", 90)
+
+
+fico_df$`Equal Opportunity`[fico_df$Race=="White"] <- temp$Thresholds[temp$Variables=="White"]
+fico_df$`Equal Opportunity`[fico_df$Race=="Black"] <- temp$Thresholds[temp$Variables=="Black"]
+fico_df$`Equal Opportunity`[fico_df$Race=="Hispanic"] <- temp$Thresholds[temp$Variables=="Hispanic"]
+fico_df$`Equal Opportunity`[fico_df$Race=="Asian"] <- temp$Thresholds[temp$Variables=="Asian"]
+
+
+
+bar_data_race_fico <- reshape2::melt(fico_df, id.var='Race')
+
+bar_data_race_fico$Population <- NA
+bar_data_race_fico$Percentage <- NA
+
+for (i in 1:length(bar_data_race_fico$Race))
+  
+{
+  
+  bar_data_race_fico$Population[i] <- sum(joined$dummy[joined$Race==bar_data_race_fico$Race[i] & 
+                                                  joined$FICOCLV8_SCORE >= bar_data_race_fico$value[i]], na.rm=T)
+  
+  bar_data_race_fico$Percentage[i] <- bar_data_race_fico$Population[i]/sum(joined$dummy[joined$Race==bar_data_race_fico$Race[i]],
+                                                                 na.rm=T)
+  
+  bar_data_race_fico$TP_Percentage[i] <- sum(joined$dummy[joined$Race==bar_data_race_fico$Race[i] &
+                                                          joined$FICOCLV8_SCORE >= bar_data_race_fico$value[i] &
+                                                          joined$DPD90_KEYCD==0], na.rm=T)/bar_data_race_fico$Population[i]
+}
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+temp <- reshape2::melt(fico_df, id.var='Race')
+
+
+tempa <- ggplot(temp, aes(value, variable, color=Race)) +
+  geom_point(alpha=0.5, size=5) + theme_classic() +
+  scale_colour_discrete("Race") + xlab("FICO") + ylab("")+ 
+  scale_x_continuous(limits=c(400, 800)) + 
+  labs(color="Cluster") #+
+    # theme(axis.text.x=element_text(size=20),
+    #     axis.text.y=element_text(size=20),
+    #     plot.title = element_text(size=20),
+    #     legend.title = element_text(size=20),
+    #     legend.text = element_text(size=20))
+
+temp <- reshape2::melt(es_df, id.var='Race')
+
+
+tempb <- ggplot(temp, aes(value, variable, color=Race)) +
+  geom_point(alpha=0.5, size=5) + theme_classic() +
+  scale_colour_discrete("Race") + xlab("EnergyScore") + ylab("")+ 
+ # scale_x_continuous(limits=c(400, 800)) + 
+  labs(color="Cluster") #+
+    # theme(axis.text.x=element_text(size=20),
+    #     axis.text.y=element_text(size=20),
+    #     plot.title = element_text(size=20),
+    #     legend.title = element_text(size=20),
+    #     legend.text = element_text(size=20))
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+<style>
+### Income
+{
+   display: none;
+ }
+</style>
+
+
+
+
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# EnergyScore 
+
+es_df <- profit_max_thresh("EnergyScore", "Income", 0.823)
+
+es_df <- es_df %>%
+  rename("Profit Max" = "Thresholds" ,
+         "Income" = "Variables") %>%
+  mutate("Race Blind" = 1) %>%
+  mutate("Demographic Parity" = NA,
+         "Equal Opportunity" = NA) %>%
+  filter(Income !="Total")
+
+temp_thresh = 0.7
+
+es_df$`Demographic Parity` = c(demo_parity_thresh("Income", "Low", temp_thresh)[[1]][2],
+            demo_parity_thresh("Income", "Medium", temp_thresh)[[1]][2],
+            demo_parity_thresh("Income", "High", temp_thresh)[[1]][2])
+
+temp <- equ_op_thresh("EnergyScore","Income", 90)
+
+
+es_df$`Equal Opportunity`[es_df$Income=="Low"] <- temp$Thresholds[temp$Variables=="High"]
+es_df$`Equal Opportunity`[es_df$Income=="Medium"] <- temp$Thresholds[temp$Variables=="Medium"]
+es_df$`Equal Opportunity`[es_df$Income=="High"] <- temp$Thresholds[temp$Variables=="High"]
+
+bar_data_income_es <- reshape2::melt(es_df, id.var='Income') 
+
+bar_data_income_es$Population <- NA
+bar_data_income_es$Percentage <- NA
+
+for (i in 1:length(bar_data_income_es$Income))
+  
+{
+  
+  bar_data_income_es$Population[i] <- sum(joined$dummy[joined$Income==bar_data_income_es$Income[i] & 
+                                                  joined$EnergyScore >= bar_data_income_es$value[i]], na.rm=T)
+  
+  bar_data_income_es$Percentage[i] <- bar_data_income_es$Population[i]/sum(joined$dummy[joined$Income==bar_data_income_es$Income[i]],
+                                                                 na.rm=T)
+  
+  bar_data_income_es$TP_Percentage[i] <- sum(joined$dummy[joined$Income==bar_data_income_es$Income[i] &
+                                                          joined$EnergyScore >= bar_data_income_es$value[i] &
+                                                          joined$DPD90_KEYCD==0], na.rm=T)/bar_data_income_es$Population[i]
+  
+}
+
+
+
+# FICO 
+
+fico_df <- profit_max_thresh("FICO", "Income", 0.823)
+
+fico_df <- fico_df %>%
+  rename("Profit Max" = "Thresholds",
+         "Income" = "Variables") %>%
+  mutate("Race Blind" = 620) %>%
+  mutate("Demographic Parity" = NA,
+         "Equal Opportunity" = NA) %>%
+  filter(Income !="Total")
+
+temp_thresh = 0.7
+
+fico_df$`Demographic Parity` = c(demo_parity_thresh("Income", "Low", temp_thresh)[[1]][1],
+            demo_parity_thresh("Income", "Medium", temp_thresh)[[1]][1],
+            demo_parity_thresh("Income", "High", temp_thresh)[[1]][1])
+
+temp <- equ_op_thresh("FICO","Income", 90)
+
+
+fico_df$`Equal Opportunity`[fico_df$Income=="Low"] <- temp$Thresholds[temp$Variables=="Low"]
+fico_df$`Equal Opportunity`[fico_df$Income=="Medium"] <- temp$Thresholds[temp$Variables=="Medium"]
+fico_df$`Equal Opportunity`[fico_df$Income=="High"] <- temp$Thresholds[temp$Variables=="High"]
+
+bar_data_income_fico <- reshape2::melt(fico_df, id.var='Income')
+
+bar_data_income_fico$Population <- NA
+bar_data_income_fico$Percentage <- NA
+
+for (i in 1:length(bar_data_income_fico$Income))
+  
+{
+  
+  bar_data_income_fico$Population[i] <- sum(joined$dummy[joined$Income==bar_data_income_fico$Income[i] & 
+                                                  joined$FICOCLV8_SCORE >= bar_data_income_fico$value[i]], na.rm=T)
+  
+  bar_data_income_fico$Percentage[i] <- bar_data_income_fico$Population[i]/sum(joined$dummy[joined$Income==bar_data_income_fico$Income[i]],
+                                                                 na.rm=T)
+  
+  bar_data_income_fico$TP_Percentage[i] <- sum(joined$dummy[joined$Income==bar_data_income_fico$Income[i] &
+                                                          joined$FICOCLV8_SCORE >= bar_data_income_fico$value[i] &
+                                                          joined$DPD90_KEYCD==0], na.rm=T)/bar_data_income_fico$Population[i]
+}
+
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+temp <- reshape2::melt(fico_df, id.var='Income')
+
+
+tempc <- ggplot(temp, aes(value, variable, color=Income)) +
+  geom_point(alpha=0.5, size=5) + theme_classic() +
+  scale_colour_discrete("Income") + xlab("FICO") + ylab("")+ 
+  scale_x_continuous(limits=c(400, 800)) + 
+  labs(color="Cluster")# +
+    # theme(axis.text.x=element_text(size=20),
+    #     axis.text.y=element_text(size=20),
+    #     plot.title = element_text(size=20),
+    #     legend.title = element_text(size=20),
+    #     legend.text = element_text(size=20))
+
+tempc
+```
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+temp <- reshape2::melt(es_df, id.var='Income')
+
+
+
+tempd <- ggplot(temp, aes(value, variable, color=Income)) +
+  geom_point(alpha=0.5, size=5) + theme_classic() +
+  scale_colour_discrete("Income") + xlab("EnergyScore") + ylab("")+ scale_x_continuous(limits=c(0, 100)) + labs(color="Cluster") 
+    # theme(axis.text.x=element_text(size=20),
+    #     axis.text.y=element_text(size=20),
+    #     plot.title = element_text(size=20),
+    #     legend.title = element_text(size=20),
+    #     legend.text = element_text(size=20))
+
+
+```
+
+
+
+<style>
+#### Figure 4
+{
+   display: none;
+ }
+</style>
+
+
+In Figure \ref{fig:fpfig1} the thresholds are shown for Income and Race. 
+
+
+
+
+
+```{r fpfig1, echo=FALSE, fig.width=10,fig.height=6,fig.cap="\\label{fig:fpfig1}False Positive Comparison"}
+
+
+grid.arrange(tempa, tempb, tempc, tempd, nrow=2, ncol=2)
+
+```
+
+
+
+
+
+
+<style>
+### Education
+{
+   display: none;
+ }
+</style>
+
+
+
+
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# EnergyScore 
+
+es_df <- profit_max_thresh("EnergyScore", "Education", 0.823)
+
+es_df <- es_df %>%
+  rename("Profit Max" = "Thresholds" ,
+         "Education" = "Variables") %>%
+  mutate("Race Blind" = 1) %>%
+  mutate("Demographic Parity" = NA,
+         "Equal Opportunity" = NA) %>%
+  filter(Education !="Total")
+
+temp_thresh = 0.7
+
+es_df$`Demographic Parity` = c(demo_parity_thresh("Education", "Vocational/Technical", temp_thresh)[[1]][2],
+            demo_parity_thresh("Education", "High School", temp_thresh)[[1]][2],
+            demo_parity_thresh("Education", "College", temp_thresh)[[1]][2],
+            demo_parity_thresh("Education", "Graduate School", temp_thresh)[[1]][2])
+
+temp <- equ_op_thresh("EnergyScore","Education", 90)
+
+
+es_df$`Equal Opportunity`[es_df$Education=="Vocational/Technical"] <- temp$Thresholds[temp$Variables=="Vocational/Technical"]
+es_df$`Equal Opportunity`[es_df$Education=="High School"] <- temp$Thresholds[temp$Variables=="High School"]
+es_df$`Equal Opportunity`[es_df$Education=="College"] <- temp$Thresholds[temp$Variables=="College"]
+es_df$`Equal Opportunity`[es_df$Education=="Graduate School"] <- temp$Thresholds[temp$Variables=="Graduate School"]
+
+
+bar_data_edu_es <- reshape2::melt(es_df, id.var='Education') 
+
+bar_data_edu_es$Population <- NA
+bar_data_edu_es$Percentage <- NA
+
+for (i in 1:length(bar_data_edu_es$Education))
+  
+{
+  
+  bar_data_edu_es$Population[i] <- sum(joined$dummy[joined$Education==bar_data_edu_es$Education[i] & 
+                                                  joined$EnergyScore >= bar_data_edu_es$value[i]], na.rm=T)
+  
+  bar_data_edu_es$Percentage[i] <- bar_data_edu_es$Population[i]/sum(joined$dummy[joined$Education==bar_data_edu_es$Education[i]],
+                                                                 na.rm=T)
+  
+  bar_data_edu_es$TP_Percentage[i] <- sum(joined$dummy[joined$Education==bar_data_edu_es$Education[i] &
+                                                          joined$EnergyScore >= bar_data_edu_es$value[i] &
+                                                          joined$DPD90_KEYCD==0], na.rm=T)/bar_data_edu_es$Population[i]
+  
+}
+
+
+
+
+# FICO 
+
+fico_df <- profit_max_thresh("FICO", "Education", 0.823)
+
+fico_df <- fico_df %>%
+  rename("Profit Max" = "Thresholds",
+         "Education" = "Variables") %>%
+  mutate("Race Blind" = 620) %>%
+  mutate("Demographic Parity" = NA,
+         "Equal Opportunity" = NA) %>%
+  filter(Education !="Total")
+
+temp_thresh = 0.7
+
+fico_df$`Demographic Parity` = c(demo_parity_thresh("Education", "Vocational/Technical", temp_thresh)[[1]][1],
+            demo_parity_thresh("Education", "High School", temp_thresh)[[1]][1],
+            demo_parity_thresh("Education", "College", temp_thresh)[[1]][1],
+            demo_parity_thresh("Education", "Graduate School", temp_thresh)[[1]][1])
+
+temp <- equ_op_thresh("FICO","Education", 90)
+
+
+
+fico_df$`Equal Opportunity`[fico_df$Education=="Vocational/Technical"] <- temp$Thresholds[temp$Variables=="Vocational/Technical"]
+fico_df$`Equal Opportunity`[fico_df$Education=="High School"] <- temp$Thresholds[temp$Variables=="High School"]
+fico_df$`Equal Opportunity`[fico_df$Education=="College"] <- temp$Thresholds[temp$Variables=="College"]
+fico_df$`Equal Opportunity`[fico_df$Education=="Graduate School"] <- temp$Thresholds[temp$Variables=="Graduate School"]
+
+bar_data_edu_fico <- reshape2::melt(fico_df, id.var='Education')
+
+bar_data_edu_fico$Population <- NA
+bar_data_edu_fico$Percentage <- NA
+
+for (i in 1:length(bar_data_edu_fico$Education))
+  
+{
+  
+  bar_data_edu_fico$Population[i] <- sum(joined$dummy[joined$Education==bar_data_edu_fico$Education[i] & 
+                                                  joined$FICOCLV8_SCORE >= bar_data_edu_fico$value[i]], na.rm=T)
+  
+  bar_data_edu_fico$Percentage[i] <- bar_data_edu_fico$Population[i]/sum(joined$dummy[joined$Education==bar_data_edu_fico$Education[i]],
+                                                                 na.rm=T)
+  
+  bar_data_edu_fico$TP_Percentage[i] <- sum(joined$dummy[joined$Education==bar_data_edu_fico$Education[i] &
+                                                          joined$FICOCLV8_SCORE >= bar_data_edu_fico$value[i] &
+                                                          joined$DPD90_KEYCD==0], na.rm=T)/bar_data_edu_fico$Population[i]
+}
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+temp <- reshape2::melt(fico_df, id.var='Education')
+
+
+tempe <- ggplot(temp, aes(value, variable, color=Education)) +
+  geom_point(alpha=0.5, size=5) + theme_classic() +
+  scale_colour_discrete("Education") + xlab("FICO") + ylab("")+ 
+  scale_x_continuous(limits=c(400, 800)) + 
+  #scale_x_continuous(limits=c(0, 100)) + 
+  labs(color="Cluster") #+
+    # theme(axis.text.x=element_text(size=20),
+    #     axis.text.y=element_text(size=20),
+    #     plot.title = element_text(size=20),
+    #     legend.title = element_text(size=20),
+    #     legend.text = element_text(size=20))
+
+tempe
+```
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+temp <- reshape2::melt(es_df, id.var='Education')
+
+
+
+tempf <- ggplot(temp, aes(value, variable, color=Education)) +
+  geom_point(alpha=0.5, size=5) + theme_classic() +
+  scale_colour_discrete("Education") + xlab("EnergyScore") + ylab("")+ scale_x_continuous(limits=c(0, 100)) + labs(color="Cluster") #+
+    # theme(axis.text.x=element_text(size=20),
+    #     axis.text.y=element_text(size=20),
+    #     plot.title = element_text(size=20),
+    #     legend.title = element_text(size=20),
+    #     legend.text = element_text(size=20))
+tempf
+```
+
+
+
+
+
+
+
+<style>
+### Homeownership
+{
+   display: none;
+ }
+</style>
+
+
+
+
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# EnergyScore 
+
+es_df <- profit_max_thresh("EnergyScore", "HomeOwnership", 0.823)
+
+es_df <- es_df %>%
+  rename("Profit Max" = "Thresholds" ,
+         "HomeOwnership" = "Variables") %>%
+  mutate("Race Blind" = 1) %>%
+  mutate("Demographic Parity" = NA,
+         "Equal Opportunity" = NA) %>%
+  filter(HomeOwnership !="Total")
+
+temp_thresh = 0.7
+
+es_df$`Demographic Parity` = c(demo_parity_thresh("HomeOwnership", "Rent", temp_thresh)[[1]][2],
+            demo_parity_thresh("HomeOwnership", "Own", temp_thresh)[[1]][2])
+
+temp <- equ_op_thresh("EnergyScore","HomeOwnership", 90)
+
+
+es_df$`Equal Opportunity`[es_df$HomeOwnership=="Rent"] <- temp$Thresholds[temp$Variables=="Rent"]
+es_df$`Equal Opportunity`[es_df$HomeOwnership=="Own"] <- temp$Thresholds[temp$Variables=="Own"]
+
+
+bar_data_hs_es <- reshape2::melt(es_df, id.var='HomeOwnership') 
+
+bar_data_hs_es$Population <- NA
+bar_data_hs_es$Percentage <- NA
+
+for (i in 1:length(bar_data_hs_es$HomeOwnership))
+  
+{
+  
+  bar_data_hs_es$Population[i] <- sum(joined$dummy[joined$HomeOwnership==bar_data_hs_es$HomeOwnership[i] & 
+                                                  joined$EnergyScore >= bar_data_hs_es$value[i]], na.rm=T)
+  
+  bar_data_hs_es$Percentage[i] <- bar_data_hs_es$Population[i]/sum(joined$dummy[joined$HomeOwnership==bar_data_hs_es$HomeOwnership[i]],
+                                                                 na.rm=T)
+  
+  bar_data_hs_es$TP_Percentage[i] <- sum(joined$dummy[joined$HomeOwnership==bar_data_hs_es$HomeOwnership[i] &
+                                                          joined$EnergyScore >= bar_data_hs_es$value[i] &
+                                                          joined$DPD90_KEYCD==0], na.rm=T)/bar_data_hs_es$Population[i]
+  
+}
+
+
+# FICO 
+
+fico_df <- profit_max_thresh("FICO", "HomeOwnership", 0.823)
+
+fico_df <- fico_df %>%
+  rename("Profit Max" = "Thresholds",
+         "HomeOwnership" = "Variables") %>%
+  mutate("Race Blind" = 620) %>%
+  mutate("Demographic Parity" = NA,
+         "Equal Opportunity" = NA) %>%
+  filter(HomeOwnership !="Total")
+
+temp_thresh = 0.7
+
+fico_df$`Demographic Parity` = c(demo_parity_thresh("HomeOwnership", "Low", temp_thresh)[[1]][1],
+            demo_parity_thresh("HomeOwnership", "High", temp_thresh)[[1]][1])
+
+temp <- equ_op_thresh("FICO","HomeOwnership", 90)
+
+
+fico_df$`Equal Opportunity`[fico_df$HomeOwnership=="Rent"] <- temp$Thresholds[temp$Variables=="Rent"]
+fico_df$`Equal Opportunity`[fico_df$HomeOwnership=="Own"] <- temp$Thresholds[temp$Variables=="Own"]
+
+
+
+bar_data_hs_fico <- reshape2::melt(fico_df, id.var='HomeOwnership')
+
+bar_data_hs_fico$Population <- NA
+bar_data_hs_fico$Percentage <- NA
+
+for (i in 1:length(bar_data_hs_fico$HomeOwnership))
+  
+{
+  
+  bar_data_hs_fico$Population[i] <- sum(joined$dummy[joined$HomeOwnership==bar_data_hs_fico$HomeOwnership[i] & 
+                                                  joined$FICOCLV8_SCORE >= bar_data_hs_fico$value[i]], na.rm=T)
+  
+  bar_data_hs_fico$Percentage[i] <- bar_data_hs_fico$Population[i]/sum(joined$dummy[joined$HomeOwnership==bar_data_hs_fico$HomeOwnership[i]],
+                                                                 na.rm=T)
+  
+  bar_data_hs_fico$TP_Percentage[i] <- sum(joined$dummy[joined$HomeOwnership==bar_data_hs_fico$HomeOwnership[i] &
+                                                          joined$FICOCLV8_SCORE >= bar_data_hs_fico$value[i] &
+                                                          joined$DPD90_KEYCD==0], na.rm=T)/bar_data_hs_fico$Population[i]
+}
+
+
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+temp <- reshape2::melt(fico_df, id.var='HomeOwnership')
+
+
+tempg <- ggplot(temp, aes(value, variable, color=HomeOwnership)) +
+  geom_point(alpha=0.5, size=5) + theme_classic() +
+  scale_x_continuous(limits=c(400, 800)) + 
+  scale_colour_discrete("HomeOwnership") + xlab("FICO") + ylab("")+ 
+  #scale_x_continuous(limits=c(0, 100)) + 
+  labs(color="Cluster") #+
+    # theme(axis.text.x=element_text(size=20),
+    #     axis.text.y=element_text(size=20),
+    #     plot.title = element_text(size=20),
+    #     legend.title = element_text(size=20),
+    #     legend.text = element_text(size=20))
+
+tempg
+```
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+temp <- reshape2::melt(es_df, id.var='HomeOwnership')
+
+
+temph <- ggplot(temp, aes(value, variable, color=HomeOwnership)) +
+  geom_point(alpha=0.5, size=5) + theme_classic() +
+  scale_colour_discrete("HomeOwnership") + xlab("EnergyScore") + ylab("")+ scale_x_continuous(limits=c(0, 100)) + labs(color="Cluster") #+
+    # theme(axis.text.x=element_text(size=20),
+    #     axis.text.y=element_text(size=20),
+    #     plot.title = element_text(size=20),
+    #     legend.title = element_text(size=20),
+    #     legend.text = element_text(size=20))
+
+temph
+```
+
+
+
+
+
+
+
+
+In Figure \ref{fig:fpfig2} the thresholds are shown for Education and Homeownership.  
+
+
+
+
+
+```{r fpfig2, echo=FALSE, fig.width=11,fig.height=6,fig.cap="\\label{fig:fpfig2}False Positive Comparison Continued"}
+
+
+grid.arrange(tempe, tempf, tempg, temph, nrow=2, ncol=2)
+
+```
+
+
+## Intra Group Percentiles
+
+
+
+
+
+
+<style>
+### Race
+{
+   display: none;
+ }
+</style>
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+temp_fico <- bar_data_race_fico %>%
+  dplyr::select(Race, variable, Percentile_FICO=Percentage) 
+
+temp_es <- bar_data_race_es %>%
+  dplyr::select(Race, variable,Percentile_ES= Percentage)
+
+temp_combined <- cbind(temp_es,temp_fico)
+temp_combined <- temp_combined [-1]
+
+temp_combined <- temp_combined %>%
+  dplyr::select(Race, variable, Percentile_FICO, Percentile_ES)
+
+p1 <- ggplot(data=temp_combined, aes(x=Percentile_FICO, y=variable, fill=Race))+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
+    theme_minimal() + ggtitle("FICO")+ ylab("") + xlab("") + xlim(0,1) #+
+    # theme(axis.text.x=element_text(size=20),
+    #     axis.text.y=element_text(size=20),
+    #     plot.title = element_text(size=20),
+    #     legend.title = element_text(size=20),
+    #     legend.text = element_text(size=20))
+p1
+
+p2 <- ggplot(data=temp_combined, aes(x=Percentile_ES, y=variable, fill=Race))+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
+    theme_minimal() + ggtitle("EnergyScore")+ ylab("") + xlab("")+ xlim(0,1) #+
+    # theme(axis.text.x=element_text(size=20),
+    #     axis.text.y=element_text(size=20),
+    #     plot.title = element_text(size=20),
+    #     legend.title = element_text(size=20),
+    #     legend.text = element_text(size=20))
+p2
+
+
+
+
+```
+
+
+
+
+
+
+
+<style>
+### Income
+{
+   display: none;
+ }
+</style>
+
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+temp_fico <- bar_data_income_fico %>%
+  dplyr::select(Income, variable, Percentile_FICO=Percentage) 
+
+temp_es <- bar_data_income_es %>%
+  dplyr::select(Income, variable,Percentile_ES= Percentage)
+
+temp_combined <- cbind(temp_es,temp_fico)
+temp_combined <- temp_combined [-1]
+
+temp_combined <- temp_combined %>%
+  dplyr::select(Income, variable, Percentile_FICO, Percentile_ES)
+
+p3 <- ggplot(data=temp_combined, aes(x=Percentile_FICO, y=variable, fill=Income))+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
+    theme_minimal() + ggtitle("FICO")+ ylab("") + xlab("") + xlim(0,1)#+
+    # theme(axis.text.x=element_text(size=20),
+    #     axis.text.y=element_text(size=20),
+    #     plot.title = element_text(size=20),
+    #     legend.title = element_text(size=20),
+    #     legend.text = element_text(size=20))
+p3
+
+p4 <- ggplot(data=temp_combined, aes(x=Percentile_ES, y=variable, fill=Income))+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
+    theme_minimal() + ggtitle("EnergyScore")+ ylab("") + xlab("")+ xlim(0,1) #+
+    # theme(axis.text.x=element_text(size=20),
+    #     axis.text.y=element_text(size=20),
+    #     plot.title = element_text(size=20),
+    #     legend.title = element_text(size=20),
+    #     legend.text = element_text(size=20))
+p4
+
+
+
+
+```
+
+
+<style>
+#### Figure 5
+{
+   display: none;
+ }
+</style>
+
+
+```{r intra, echo=FALSE, fig.width=12,fig.height=8,fig.cap="\\label{fig:intra}Intra-Group Percentiles Comparison"}
+
+
+grid.arrange(p1, p2, p3, p4, nrow=2, ncol=2)
+
+```
+
+
+
+
+
+<style>
+### Education
+{
+   display: none;
+ }
+</style>
+
+
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+temp_fico <- bar_data_edu_fico %>%
+  dplyr::select(Education, variable, Percentile_FICO=Percentage) 
+
+temp_es <- bar_data_edu_es %>%
+  dplyr::select(Education, variable,Percentile_ES= Percentage)
+
+temp_combined <- cbind(temp_es,temp_fico)
+temp_combined <- temp_combined [-1]
+
+temp_combined <- temp_combined %>%
+  dplyr::select(Education, variable, Percentile_FICO, Percentile_ES)
+
+p1 <- ggplot(data=temp_combined, aes(x=Percentile_FICO, y=variable, fill=Education))+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
+    theme_minimal() + ylab("") + xlab("") + xlim(0,1) + ggtitle("FICO")#+
+  # theme(axis.text.x=element_text(size=20),
+  #       axis.text.y=element_text(size=20),
+  #       plot.title = element_text(size=20),
+  #       legend.title = element_text(size=20),
+  #       legend.text = element_text(size=20))
+
+p1
+
+p2 <- ggplot(data=temp_combined, aes(x=Percentile_ES, y=variable, fill=Education))+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
+    theme_minimal() + ylab("") + xlab("")+ xlim(0,1) + ggtitle("EnergyScore")#+
+  # theme(axis.text.x=element_text(size=20),
+  #       axis.text.y=element_text(size=20),
+  #       plot.title = element_text(size=20),
+  #       legend.title = element_text(size=20),
+  #       legend.text = element_text(size=20))
+p2
+
+
+
+
+```
+
+
+<style>
+### Homeownership
+{
+   display: none;
+ }
+</style>
+
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+temp_fico <- bar_data_hs_fico %>%
+  dplyr::select(HomeOwnership, variable, Percentile_FICO=Percentage) 
+
+temp_es <- bar_data_hs_es %>%
+  dplyr::select(HomeOwnership, variable,Percentile_ES= Percentage)
+
+temp_combined <- cbind(temp_es,temp_fico)
+temp_combined <- temp_combined [-1]
+
+temp_combined <- temp_combined %>%
+  dplyr::select(HomeOwnership, variable, Percentile_FICO, Percentile_ES)
+
+p3 <- ggplot(data=temp_combined, aes(x=Percentile_FICO, y=variable, fill=HomeOwnership))+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
+    theme_minimal() + ylab("")  + xlim(0,1)+ xlab("")+ ggtitle("FICO")#+
+  # theme(axis.text.x=element_text(size=20),
+  #       axis.text.y=element_text(size=20),
+  #       plot.title = element_text(size=20),
+  #       legend.title = element_text(size=20),
+  #       legend.text = element_text(size=20))
+p3
+
+p4 <- ggplot(data=temp_combined, aes(x=Percentile_ES, y=variable, fill=HomeOwnership))+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
+    theme_minimal() +  ylab("") +  xlim(0,1) + xlab("")+ ggtitle("EnergyScore")# +
+  # theme(axis.text.x=element_text(size=20),
+  #       axis.text.y=element_text(size=20),
+  #       plot.title = element_text(size=20),
+  #       legend.title = element_text(size=20),
+  #       legend.text = element_text(size=20))
+p4
+
+
+
+
+```
+
+<style>
+#### Figure 5
+{
+   display: none;
+ }
+</style>
+
+
+```{r intra2, echo=FALSE, fig.width=12,fig.height=8,fig.cap="\\label{fig:intra2}Intra-Group Percentiles Comparison Continued"}
+
+
+grid.arrange(p1, p2, p3, p4, nrow=2, ncol=2)
+
+```
+
+## False Positive Comparisons
+
+<style>
+### Race and Income
+{
+   display: none;
+ }
+</style>
+
+
+
+<style>
+#### Figure 6
+{
+   display: none;
+ }
+</style>
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+new_bins = seq(400,840,10)
+
+false_positives <- joined %>%
+  mutate(FICO_Bin = cut(FICOCLV8_SCORE, breaks=seq(400, 850, 10))) %>%
+  filter(!is.na(FICO_Bin)) %>%
+  filter(FICOCLV8_SCORE > 0) %>%
+  group_by(FICO_Bin) %>%
+  summarize(n=n())%>%
+  mutate(new_bins = new_bins ) %>%
+  select(new_bins, n) 
+  
+false_positives$ES_Cut <- NA
+false_positives$FICO_FP <- NA
+false_positives$FICO_FP_White <- NA
+false_positives$FICO_FP_Black <- NA
+false_positives$FICO_FP_Hispanic <- NA
+false_positives$FICO_FP_Asian <- NA
+false_positives$ES_FP <- NA
+
+false_positives$ES_FP_White <- NA
+false_positives$ES_FP_Black <- NA
+false_positives$ES_FP_Hispanic <- NA
+false_positives$ES_FP_Asian <- NA
+
+
+
+for (i in 1:length(false_positives$new_bins))
+  
+{
+  false_positives$ES_Cut[i] <- quantile(joined$Prob_Not_Def,(1-(sum(joined$FICOCLV8_SCORE> false_positives$new_bins[i], na.rm=T)/sum(joined$FICOCLV8_SCORE>0, na.rm=T))))
+  
+  
+  false_positives$FICO_FP[i] <- mean(joined$DPD90_KEYCD[joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  
+  false_positives$FICO_FP_White[i] <- mean(joined$DPD90_KEYCD[joined$Race=="White" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  false_positives$FICO_FP_Black[i] <- mean(joined$DPD90_KEYCD[joined$Race=="Black" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  false_positives$FICO_FP_Hispanic[i] <- mean(joined$DPD90_KEYCD[joined$Race=="Hispanic" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  false_positives$FICO_FP_Asian[i] <- mean(joined$DPD90_KEYCD[joined$Race=="Asian" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  
+
+
+  
+}
+
+
+
+for (i in 1:length(false_positives$new_bins))
+  
+{
+  
+  false_positives$ES_FP[i] <- mean(joined$DPD90_KEYCD[joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  
+  false_positives$ES_FP_White[i] <- mean(joined$DPD90_KEYCD[joined$Race=="White" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  false_positives$ES_FP_Black[i] <- mean(joined$DPD90_KEYCD[joined$Race=="Black" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  false_positives$ES_FP_Hispanic[i] <- mean(joined$DPD90_KEYCD[joined$Race=="Hispanic" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  false_positives$ES_FP_Asian[i] <- mean(joined$DPD90_KEYCD[joined$Race=="Asian" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  
+}
+```
+
+
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+## only select FICO >=600
+library(scales)
+false_positives <- false_positives %>%
+  filter(new_bins>590)
+
+myColors <- c("darkgreen", "red", "blue", "green", "orange", "pink")
+
+temp1 <- ggplot(false_positives, aes(x=new_bins)) + 
+  geom_line(aes(y=FICO_FP_White, color="blue"))+
+  geom_line(aes(y=FICO_FP_Hispanic, color="green"))+
+  geom_line(aes(y=FICO_FP_Black, color="orange"))+
+  geom_line(aes(y=FICO_FP_Asian, color="pink"))+
+  xlab("FICO Score") + ylab("False Positive Rate")  + theme_classic() +
+  scale_color_manual(name="Race",values=myColors, labels=c("White", "Hispanic", "Black", "Asian"))+
+  scale_y_continuous(limits = c(0, .3),labels=percent)  
+
+temp2 <- ggplot(false_positives, aes(x=new_bins)) + 
+  geom_line(aes(y=ES_FP_White, color="blue"))+
+  geom_line(aes(y=ES_FP_Hispanic, color="green"))+
+  geom_line(aes(y=ES_FP_Black, color="orange"))+
+  geom_line(aes(y= ES_FP_Asian , color="pink"))+
+  xlab("FICO Score (EnergyScore Equivalent)") + ylab("False Positive Rate") + theme_classic() +
+  scale_color_manual(name="Race",values=myColors, labels=c( "White", "Hispanic", "Black", "Asian"))+
+  scale_y_continuous(limits = c(0, .3),labels=percent)  
+
+
+
+
+
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+new_bins = seq(400,840,10)
+
+false_positives <- joined %>%
+  mutate(FICO_Bin = cut(FICOCLV8_SCORE, breaks=seq(400, 850, 10))) %>%
+  filter(!is.na(FICO_Bin)) %>%
+  filter(FICOCLV8_SCORE > 0) %>%
+  group_by(FICO_Bin) %>%
+  summarize(n=n())%>%
+  mutate(new_bins = new_bins ) %>%
+  select(new_bins, n) 
+  
+false_positives$ES_Cut <- NA
+false_positives$FICO_FP <- NA
+
+false_positives$FICO_FP_High<- NA
+false_positives$FICO_FP_Medium <- NA
+false_positives$FICO_FP_Low <- NA
+
+false_positives$ES_FP <- NA
+false_positives$ES_FP_High <- NA
+false_positives$ES_FP_Medium <- NA
+false_positives$ES_FP_Low <- NA
+
+
+for (i in 1:length(false_positives$new_bins))
+  
+{
+  false_positives$ES_Cut[i] <- quantile(joined$Prob_Not_Def,(1-(sum(joined$FICOCLV8_SCORE> false_positives$new_bins[i], na.rm=T)/sum(joined$FICOCLV8_SCORE>0, na.rm=T))))
+  
+  
+  false_positives$FICO_FP[i] <- mean(joined$DPD90_KEYCD[joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  
+
+  false_positives$FICO_FP_High[i] <- mean(joined$DPD90_KEYCD[joined$Income=="High" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  false_positives$FICO_FP_Medium[i] <- mean(joined$DPD90_KEYCD[joined$Income=="Medium" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  false_positives$FICO_FP_Low[i] <- mean(joined$DPD90_KEYCD[joined$Income=="Low" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+
+  
+}
+
+
+
+for (i in 1:length(false_positives$new_bins))
+  
+{
+  
+  false_positives$ES_FP[i] <- mean(joined$DPD90_KEYCD[joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  false_positives$ES_FP_High[i] <- mean(joined$DPD90_KEYCD[joined$Income=="High" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  false_positives$ES_FP_Medium[i] <- mean(joined$DPD90_KEYCD[joined$Income=="Medium" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  false_positives$ES_FP_Low[i] <- mean(joined$DPD90_KEYCD[joined$Income=="Low" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+
+    
+}
+```
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+## only select FICO >=600
+library(scales)
+false_positives <- false_positives %>%
+  filter(new_bins>590)
+
+myColors <- c("darkgreen", "red", "green", "orange", "pink")
+
+temp3 <- ggplot(false_positives, aes(x=new_bins)) + 
+  geom_line(aes(y=FICO_FP_Low, color="green"))+
+  geom_line(aes(y=FICO_FP_Medium, color="orange"))+
+  geom_line(aes(y=FICO_FP_High, color="pink"))+
+  xlab("FICO Score") + ylab("False Positive Rate") + theme_classic() +
+  scale_color_manual(name="Income",values=myColors, labels=c("Low", "Medium", "High"))+
+  scale_y_continuous(limits = c(0, .15),labels=percent) + theme(legend.title = element_blank())
+
+
+temp4 <- ggplot(false_positives, aes(x=new_bins)) + 
+  geom_line(aes(y=ES_FP_Low, color="green"))+
+  geom_line(aes(y=ES_FP_Medium, color="orange"))+
+  geom_line(aes(y=ES_FP_High, color="pink"))+
+  xlab("FICO Score (EnergyScore Equivalent)") + ylab("False Positive Rate")  + theme_classic() +
+  scale_color_manual(name="Income",values=myColors, labels=c( "Low", "Medium", "High"))+
+  scale_y_continuous(limits = c(0, .15),labels=percent)
+
+
+
+
+
+```
+
+
+In Figure \ref{fig:fprace} the false positives are shown for Race and Income
+
+
+
+```{r fprace, echo=FALSE, fig.width=8,fig.height=6,fig.cap="\\label{fig:fprace}False Positive Comparison"}
+
+
+grid.arrange(temp1, temp2, temp3, temp4, nrow=2, ncol=2)
+
+```
+
+
+<style>
+### HS and Education
+{
+   display: none;
+ }
+</style>
+
+
+
+<style>
+#### Figure 7
+{
+   display: none;
+ }
+</style>
+
+
+
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+new_bins = seq(400,840,10)
+
+false_positives <- joined %>%
+  mutate(FICO_Bin = cut(FICOCLV8_SCORE, breaks=seq(400, 850, 10))) %>%
+  filter(!is.na(FICO_Bin)) %>%
+  filter(FICOCLV8_SCORE > 0) %>%
+  group_by(FICO_Bin) %>%
+  summarize(n=n())%>%
+  mutate(new_bins = new_bins ) %>%
+  select(new_bins, n) 
+  
+false_positives$ES_Cut <- NA
+false_positives$FICO_FP <- NA
+
+false_positives$FICO_FP_Rent <- NA
+false_positives$FICO_FP_Own <- NA
+
+false_positives$ES_FP <- NA
+false_positives$ES_FP_Rent <- NA
+false_positives$ES_FP_Own <- NA
+
+
+for (i in 1:length(false_positives$new_bins))
+  
+{
+  false_positives$ES_Cut[i] <- quantile(joined$Prob_Not_Def,(1-(sum(joined$FICOCLV8_SCORE> false_positives$new_bins[i], na.rm=T)/sum(joined$FICOCLV8_SCORE>0, na.rm=T))))
+  
+  
+  false_positives$FICO_FP[i] <- mean(joined$DPD90_KEYCD[joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  
+  false_positives$FICO_FP_Rent[i] <- mean(joined$DPD90_KEYCD[joined$HomeOwnership=="Rent" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  false_positives$FICO_FP_Own[i] <- mean(joined$DPD90_KEYCD[joined$HomeOwnership=="Own" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+
+
+  
+}
+
+
+
+for (i in 1:length(false_positives$new_bins))
+  
+{
+  
+  false_positives$ES_FP[i] <- mean(joined$DPD90_KEYCD[joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  false_positives$ES_FP_Rent[i] <- mean(joined$DPD90_KEYCD[joined$HomeOwnership=="Rent" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  false_positives$ES_FP_Own[i] <- mean(joined$DPD90_KEYCD[joined$HomeOwnership=="Own" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  
+}
+```
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+## only select FICO >=600
+library(scales)
+false_positives <- false_positives %>%
+  filter(new_bins>590)
+
+myColors <- c("darkgreen", "red", "blue", "green")
+
+temp1 <- ggplot(false_positives, aes(x=new_bins)) + 
+  geom_line(aes(y=FICO_FP_Rent, color="blue"))+
+  geom_line(aes(y=FICO_FP_Own, color="green"))+
+  xlab("FICO Score") + ylab("False Positive Rate") +ggtitle("FICO") + theme_classic() +
+  scale_color_manual(name="Homeownership",values=myColors, labels=c("Rent", "Own"))+
+  scale_y_continuous(limits = c(0, .2),labels=percent) 
+
+
+temp2 <- ggplot(false_positives, aes(x=new_bins)) + 
+  geom_line(aes(y=ES_FP_Rent, color="blue"))+
+  geom_line(aes(y=ES_FP_Own, color="green"))+
+  xlab("FICO Score (EnergyScore Equivalent)") + ylab("False Positive Rate") +ggtitle("EnergyScore") + theme_classic() +
+  scale_color_manual(name="Homeownership",values=myColors, labels=c("Rent", "Own"))+
+  scale_y_continuous(limits = c(0, .2),labels=percent) 
+
+
+
+
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+new_bins = seq(400,840,10)
+
+false_positives <- joined %>%
+  mutate(FICO_Bin = cut(FICOCLV8_SCORE, breaks=seq(400, 850, 10))) %>%
+  filter(!is.na(FICO_Bin)) %>%
+  filter(FICOCLV8_SCORE > 0) %>%
+  group_by(FICO_Bin) %>%
+  summarize(n=n())%>%
+  mutate(new_bins = new_bins ) %>%
+  select(new_bins, n) 
+  
+false_positives$ES_Cut <- NA
+false_positives$FICO_FP <- NA
+false_positives$FICO_FP_VT <- NA
+false_positives$FICO_FP_HS <- NA
+false_positives$FICO_FP_College <- NA
+false_positives$FICO_FP_Grad <- NA
+
+
+false_positives$ES_FP <- NA
+false_positives$ES_FP_VT <- NA
+false_positives$ES_FP_HS <- NA
+false_positives$ES_FP_College <- NA
+false_positives$ES_FP_Grad <- NA
+
+
+for (i in 1:length(false_positives$new_bins))
+  
+{
+  false_positives$ES_Cut[i] <- quantile(joined$Prob_Not_Def,(1-(sum(joined$FICOCLV8_SCORE> false_positives$new_bins[i], na.rm=T)/sum(joined$FICOCLV8_SCORE>0, na.rm=T))))
+  
+  
+  false_positives$FICO_FP[i] <- mean(joined$DPD90_KEYCD[joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  
+  false_positives$FICO_FP_VT[i] <- mean(joined$DPD90_KEYCD[joined$Education=="Vocational/Technical" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  false_positives$FICO_FP_HS[i] <- mean(joined$DPD90_KEYCD[joined$Education=="High School" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  false_positives$FICO_FP_College[i] <- mean(joined$DPD90_KEYCD[joined$Education=="College" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+  false_positives$FICO_FP_Grad[i] <- mean(joined$DPD90_KEYCD[joined$Education=="Graduate School" & joined$FICOCLV8_SCORE >=false_positives$new_bins[i]], na.rm=T)
+  
+
+  
+}
+
+
+
+for (i in 1:length(false_positives$new_bins))
+  
+{
+  
+  false_positives$ES_FP[i] <- mean(joined$DPD90_KEYCD[joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  false_positives$ES_FP_VT[i] <- mean(joined$DPD90_KEYCD[joined$Education=="Vocational/Technical" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  false_positives$ES_FP_HS[i] <- mean(joined$DPD90_KEYCD[joined$Education=="High School" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  false_positives$ES_FP_College[i] <- mean(joined$DPD90_KEYCD[joined$Education=="College" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  false_positives$ES_FP_Grad[i] <- mean(joined$DPD90_KEYCD[joined$Education=="Graduate School" & joined$Prob_Not_Def >=false_positives$ES_Cut[i]],na.rm=T)
+  
+}
+```
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+## only select FICO >=600
+library(scales)
+false_positives <- false_positives %>%
+  filter(new_bins>590)
+
+myColors <- c("darkgreen", "red", "blue", "green", "orange", "pink")
+
+temp3 <- ggplot(false_positives, aes(x=new_bins)) + 
+  geom_line(aes(y=FICO_FP_VT, color="blue"))+
+  geom_line(aes(y=FICO_FP_College, color="green"))+
+  geom_line(aes(y=FICO_FP_HS, color="orange"))+
+  geom_line(aes(y=FICO_FP_Grad, color="pink"))+
+  xlab("FICO Score") + ylab("False Positive Rate") +ggtitle("FICO") + theme_classic() +
+  scale_color_manual(name="Education",values=myColors, labels=c("Vocational/Technical", "College", "High School", "Graduate School"))+
+  scale_y_continuous(limits = c(0, .12),labels=percent) 
+
+temp4 <- ggplot(false_positives, aes(x=new_bins)) + 
+  geom_line(aes(y=ES_FP_VT, color="blue"))+
+  geom_line(aes(y=ES_FP_College, color="green"))+
+  geom_line(aes(y=ES_FP_HS, color="orange"))+
+  geom_line(aes(y=ES_FP_Grad, color="pink"))+
+  xlab("FICO Score (EnergyScore Equivalent)") + ylab("False Positive Rate") +ggtitle("EnergyScore") + theme_classic() +
+  scale_color_manual(name="Education",values=myColors, labels=c("Vocational/Technical", "College", "High School", "Graduate School"))+
+  scale_y_continuous(limits = c(0, .12),labels=percent) 
+
+
+
+
+```
+
+
+
+In Figure \ref{fig:fprace2} the false positives are shown for Race and Income
+
+
+
+```{r fprace2, echo=FALSE, fig.width=8,fig.height=6,fig.cap="\\label{fig:fprace2}False Positive Comparison, Continued"}
+
+
+grid.arrange(temp1, temp2, temp3, temp4, nrow=2, ncol=2)
+
+```
+
+
+# Funding
+
+This work was supported by the Tides Foundation grant TF2112-104450. 
+
+# Data Availability
+
+The datasets generated and/or analyzed during this study are not publicly available as they include information relating to a pending patent application. 
+
+
+
+<!--
+# References
+\setlength{\parindent}{-0.2in}
+\setlength{\leftskip}{0.2in}
+\setlength{\parskip}{8pt}
+\vspace*{-0.2in}
+\noindent
+-->

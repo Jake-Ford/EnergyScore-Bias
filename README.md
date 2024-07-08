@@ -1,1 +1,3 @@
-# EnergyScore-Bias
+# Fairness in Focus Repo
+
+

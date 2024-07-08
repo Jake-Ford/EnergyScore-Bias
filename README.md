@@ -19,4 +19,4 @@ The results of this study provide a quantitative comparison of the degree of dis
 
 
 
-![Table 2](whitepaper/figures/table2.pdf)
+![Table 2](whitepaper/figures/table2.html)

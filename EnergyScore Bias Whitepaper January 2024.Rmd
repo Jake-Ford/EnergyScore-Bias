@@ -5,12 +5,13 @@ output:
     keep_tex: true
     fig_caption: true
     latex_engine: pdflatex
-    template: svm-latex-ms.tex
+    template: template.tex
 bibliography: master.bib
 header-includes:
   -  \usepackage{hyperref}
   - \usepackage{array}   
   - \usepackage{caption}
+  
   - \usepackage{graphicx}
   - \usepackage{siunitx}
   - \usepackage[table]{xcolor}
@@ -23,13 +24,13 @@ header-includes:
   - \usepackage{float}
   - \floatplacement{figure}{H}
 biblio-style: apsr
-title: "EnergyScore Bias Research"
+title: "Fairness in Focus: Quantitative Insights into Bias Within Machine Learning Risk Evaluations and Established Credit Models"
 thanks: "Replication files are available on the author's Github account (http://github.com/Jake-Ford). **Current version**: `r format(Sys.time(), '%B %d, %Y')`; **Corresponding author**: jake@solstice.us."
 author:
 - name: Jacob Ford
   affiliation: Solstice Power Technologies
-abstract: "Using data on over 800,000 utility payment performance records, we apply quantitative measurements previously identified to measure bias in classification algorithms and consider additional protected classes previously lacking attention, including race, income, home ownership status, and education levels. We find that relative to FICO scores, variance in a machine learning model for most scenarios considered."
-keywords: "bias, machine learning, equal opportunity"
+abstract: "As the adoption of machine learning algorithms expands across industries, concerns arise about their potential to inadvertently perpetuate existing biases. This study critically examines the bias present in a machine learning risk assessment tool called EnergyScore, contrasting it with conventional credit score models. Our research pursues two objectives: (1) to scrutinize the extent of bias based on classical fairness benchmarks, and (2) to innovate in bias analysis by augmenting the number of protected categories observed. The study's outcomes offer a quantitative juxtaposition of potential discriminatory practices against these groups when using EnergyScore versus traditional credit scores. The insights presented emphasize the imperative nature of evaluating and mitigating bias in machine learning implementations across multiple protected classes. Our results show the machine learning model results in lower degrees of variance in various thresholds for most considered protected classes."
+keywords: "bias, protected classes, machine learning"
 date: "`r format(Sys.time(), '%B %d, %Y')`"
 geometry: margin=1in
 fontfamily: libertine
@@ -38,6 +39,8 @@ fontsize: 11pt
 endnote: no
 always_allow_html: true
 ---
+
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(cache=TRUE,
@@ -56,10 +59,12 @@ knitr::opts_chunk$set(cache=TRUE,
 
 # Introduction
 
-As the use of machine learning algorithms continues to spread across industries, concerns about the potential for these algorithms to amplify existing biases have become increasingly relevant. To address this, various techniques for measuring and mitigating bias in machine learning models have been developed. This case study focuses on evaluating the level of bias within a risk assessment algorithm and comparing it to the traditional credit score model. The study employs the algorithmic fairness definitions put forth by @DBLP:journals/corr/HardtPS16 and aims to achieve two objectives: first, to assess the level of bias using traditional fairness criteria and second, to conduct a novel analysis by extending the number of protected classes considered. The results of this study will provide a quantitative comparison of the degree of discrimination faced by different protected classes in this specific use case.
+As the use of machine learning algorithms continues to spread across industries, concerns about the potential for these algorithms to amplify existing biases have become increasingly relevant. Various techniques for measuring and mitigating bias in machine learning models have been developed. This study deploys these common bias metrics within a risk assessment algorithm and comparing it to the traditional credit score model. The study employs the algorithmic fairness definitions put forth by @DBLP:journals/corr/HardtPS16 and aims to achieve two objectives: first, to assess the level of bias using traditional fairness criteria and second, to conduct a novel analysis by extending the number of protected classes considered. The results of this study will provide a quantitative comparison of the degree of discrimination faced by different protected classes in this specific use case.
 
 
-## Related Work
+## Background
+
+
 
 Fairness through unawareness, an approach to race-neutral threshold setting in multiple industries, has been widely criticized for being ineffective. @DBLP:journals/corr/abs-1104-3913. argue that researchers should embrace protected classes in the data to achieve a more accurate analysis of fairness. A similarity metric is used to describe the degree of similarity between individuals or groups, thereby revealing the ground truth of the distribution of the protected class. However, cases where protected class data is unavailable are not considered in this review.
 
@@ -81,9 +86,9 @@ EnergyScore was shown to be a more inclusive and accurate predictor of utility b
 
 ## Data
 
-The machine learning model analyzed in this study is EnergyScore, a patent-pending risk assessment tool designed as an alternative to traditional credit scores. Previous work has shown the increase in overall accuracy and inclusion, particularly for low-to-moderate (LMI) populations @NBERw26178. 
+The machine learning model analyzed in this study is EnergyScore, an alternative risk assessment tool designed as an alternative to traditional credit scores. Previous work has shown the increase in overall accuracy and inclusion, particularly for low-to-moderate (LMI) populations @NBERw26178. 
 
-This study uses the data used to train EnergyScore. Account-level credit account data collected between December 2009 and November 2016. Overall, over 800,000 observations of utility payment performance were collected across all fifty states and the District of Columbia. Credit history data, including FICO scores but also related utility payment performance history, was included as input variables. 
+This study uses the data used to develop EnergyScore. Account-level credit account data collected between December 2009 and November 2016. Overall, over 800,000 observations of utility payment performance were collected across all fifty states and the District of Columbia. Credit history data, including FICO scores but also related utility payment performance history, was included as input variables. 
 
 
 ## Descriptive Statistics
@@ -99,6 +104,7 @@ library(reshape)
 require(gridExtra)
 library(kableExtra)
 library(missRanger)
+library(formattable)
 source("./helper_functions.R")
 
 library(plotly)
@@ -164,9 +170,9 @@ options(scipen = 100)
 # 4 = Attended Vocational/Technical
 
 
-sample_data <- read.csv('/Volumes/GoogleDrive/Shared drives/*Solstice | Shared Project/The EnergyScore/Google Bias Fairness Analysis/Master ES Dataset/Stata/full_data.csv')
+sample_data <- read.csv('/Users/jacobford/Library/CloudStorage/GoogleDrive-jake@solstice.us/Shared drives/*Solstice | Shared Project/The EnergyScore/Google Bias Fairness Analysis/Master ES Dataset/Stata/full_data.csv')
 
-output = read.csv("/Volumes/GoogleDrive/My Drive/EnergyScore/Bias/Full Dataset/Archive/EnergyScore_output_jf_test_4.5.22.csv", header=FALSE)
+output = read.csv("/Users/jacobford/Library/CloudStorage/GoogleDrive-jake@solstice.us/My Drive/EnergyScore/Bias/Full Dataset/Archive/EnergyScore_output_jf_test_4.5.22.csv", header=FALSE)
 names(output)[1] <- "Prob_Not_Def"
 names(output)[2] <- "Prob_Def"
 
@@ -303,6 +309,8 @@ kable( temp,
   pack_rows("Home Ownershp", 7,8) %>%
   pack_rows("Income", 9,10) %>%
   pack_rows("Education", 11,15)
+
+
 ```
 
 
@@ -317,14 +325,14 @@ Case studies are useful illustrations of levels of bias measurable in machine le
 
 ## Bias Measurements
 
-Quantitative measurements of bias and fairness are provided for both EnergyScore and the comparison FICO score. Bias will be measured by disparate effects on sub-groups in threshold scenarios. Additionally, the threshold scenarios can be completed by optimizing either FICO scores or EnergyScore. For simplicity, FICO scores are first used in the scenarios, EnergyScore will next be used. This will allow both a baseline observation of how both metrics perform at bias measurements, and a comparison to determine how EnergyScore performs in fairness measurements compared to FICO cutoffs.
+Quantitative measurements of bias and fairness are provided for both EnergyScore and the comparison FICO score. Bias will be measured by disparate effects on sub-groups in threshold scenarios. Additionally, the threshold scenarios can be completed by optimizing either FICO scores or EnergyScore. 
 
-Using the methodology designed by @DBLP:journals/corr/HardtPS16, the following scenarios will be applied to our protected classes: 
+Using the methodology designed by @DBLP:journals/corr/HardtPS16, the following scenarios will be applied to our protected classes: profit maximization, race blind, demographic parity, equal opportunity. 
 
 ### Profit Maximization
 
 
-Maximum Profits assumes that lenders will seek to minimize false positives. Hence, a cutoff for applicants is required.  A FICO cutoff of 620 is used for good credit as classified by the Consumer Financial Protection Bureau. From the Non-default rate/FICO score graph below, setting the setting the FICO score to 620 results in the *total* non-default rate of 59%; or the default rate to 41%. Hence, for profit maximization we will set the FICO scores accordingly so that each group achieves maximum 41% default rate. Notice how from the graph below, individual FICO cutoffs will differ widely, Hispanics having the lowest and Whites having the highest. 
+This measurement assumes that lenders will seek to minimize false positives. Hence, a cutoff for applicants is required. A FICO cutoff of 620 is used for good credit as classified by the Consumer Financial Protection Bureau. From Figure \ref{fig:profitmax}, setting the setting the FICO score to 620 results in the *total* non-default rate of 82%; or the default rate to 18%. Hence, for profit maximization we will set the FICO scores accordingly so that each group achieves maximum 18% default rate. Notice how from the graph below, individual FICO cutoffs will differ widely, Hispanics having the lowest and Whites having the highest. 
  
 To arrive at the EnergyScore threshold, the computation includes analyzing the share of the group approved, then setting the EnergyScore threshold to the same proportion. This concept is seen in the idea of demographic parity, and was taken from the EnergyScore [whitepaper](https://solstice.us/wp-content/uploads/EnergyScore-White-Paper-1.pdf). 
 
@@ -415,7 +423,7 @@ profit_max_es <- ggplot(temp_pm, aes(x=ES, y=value, color=variable))+geom_line()
 
 
 
-p <- ggplot(data=es_df, aes(x=Variables, y=Thresholds))+geom_bar(stat='identity') + theme_minimal() + ggtitle("Profit Maximization EnergyScores")+ ylab("EnergyScore")
+p <- ggplot(data=es_df, aes(x=Variables, y=Thresholds))+geom_bar(stat='identity') + theme_classic() + ggtitle("Profit Maximization EnergyScores")+ ylab("EnergyScore")
 
 ggplotly(p)
 ```
@@ -435,19 +443,18 @@ grid.arrange(profit_max_fico, profit_max_es, nrow=2)
 
 ```
  
-In Figure \ref{fig:profitmax} we see the non-default rates plotted with various levels of FICO threshold cutoffs. To arrive at the EnergyScore threshold, the computation includes analyzing the share of the groupapproved, then setting the EnergyScore threshold to the same proportion. 
 
 
  
  
 ### Race Blind
  
-Similar to maximum profits, but only apply single threshold to all groups; hence all groups will be applied the same threshold of 620 for FICO. Hence, in threshold comparison section at end of each group, no variation will be observed. 
+This criteria mimics the threshold construction steps completed in Profit Maximization however by only applying a single threshold to all groups. Hence to extend the previous example, all groups will be applied the same threshold of 620 for FICO. In threshold comparison section at end of each group, no variation will be observed. 
  
   
 ### Demographic Parity
  
-This theory sets the thresholds different for each group such that the proportion of accepted is equal across all groups. This leads to divergent thresholds per group. The graph below shows the same cumulative distribution curves. In demographic parity constraints, the threshold is calculated by setting the proportion of population above that valye. Figure \ref{fig:demparity} below visualizes the result, as different subgroups, race in this instance, would receive different thresholds.
+This theory sets the thresholds different for each group such that the proportion of accepted is equal across all groups. This leads to divergent thresholds per group. Figure \ref{fig:demparity} below visualizes the result, as different subgroups, race in this instance, would receive different thresholds. The graph below shows the same cumulative distribution curves. In demographic parity constraints, the threshold is calculated by setting the proportion of population above that value. 
  
  
 
@@ -500,13 +507,13 @@ ggplot(temp, aes(x=new_bins, y=value, color=variable))+geom_line() +theme_classi
   xlab('FICO Score') + ylab('Fraction of group below') + labs(color='') + ggtitle("Cumulative Distribution Function")   +geom_vline(xintercept=700, linetype='dotted', col = 'black') +
   geom_hline(yintercept=temp$value[temp$new_bins==700 & temp$variable=="Total"], linetype='dotted',col='black')
 
-
+temp 
 ```
 
 
 ### Equal Opportunity
- 
-The true positive rate in data science field refers to the proportion of those approved by a threshold who do not default; i.e. the true paying individuals who are approved. Hence, this criteria sets the true positive rate equal across all groups. In the graph below, the true positive rate is shown with varying levels of FICO score cutoffs. In the example, the developer would choose a true positive level, in the below 70%, and apply the varying thresholds accordingly. 
+
+The true positive rate, also known as sensitivity or recall, is the proportion of actual positive cases that are correctly identified by a model. The Equal Opportunity criteria sets the true positive rate equal across all groups. In the graph below, the true positive rate is shown with varying levels of FICO score cutoffs. In the example, the developer would choose a true positive level, in the below 70%, and apply the varying thresholds accordingly. 
 
 
 
@@ -599,6 +606,11 @@ grid.arrange(tp_plot_fico, tp_plot_es, nrow=2)
 
 
 
+### Intra- and Inter-Group 
+
+Comparing distributions of thresholds from traditional bias measurements is a necessary but not sufficient step in our analysis. Expanding protected classes in this analysis provides more observations, but to determine how protected classes are treated by each algorithm, we propose using a common practice in mathematical statistics: intra- and inter-group variance. 
+
+@yang2022minimax previously found that expanding protected classes beyond race and gender is valuable in minimizing disparate impacts, particularly for marginalized groups. While the authors apply the intra- and inter-group theory to receiver operator curves (AUC), we apply a simplistic variance calculation for thresholds to determine how the respective risk classification metric treats different groups. 
 
 
 
@@ -744,7 +756,9 @@ tempa <- ggplot(temp, aes(value, variable, color=Race)) +
   geom_point(alpha=0.5, size=5) + theme_classic() +
   scale_colour_discrete("Race") + xlab("FICO") + ylab("")+ 
   scale_x_continuous(limits=c(400, 800)) + 
-  labs(color="Cluster") #+
+  labs(color="Cluster") +
+  theme(axis.text = element_text(size=10),         axis.text.y = element_text(size=10))
+  #+
     # theme(axis.text.x=element_text(size=20),
     #     axis.text.y=element_text(size=20),
     #     plot.title = element_text(size=20),
@@ -758,7 +772,8 @@ tempb <- ggplot(temp, aes(value, variable, color=Race)) +
   geom_point(alpha=0.5, size=5) + theme_classic() +
   scale_colour_discrete("Race") + xlab("EnergyScore") + ylab("")+ 
  # scale_x_continuous(limits=c(400, 800)) + 
-  labs(color="Cluster") #+
+  labs(color="Cluster")  +
+  theme(axis.text = element_text(size=10),         axis.text.y = element_text(size=10))#+
     # theme(axis.text.x=element_text(size=20),
     #     axis.text.y=element_text(size=20),
     #     plot.title = element_text(size=20),
@@ -901,6 +916,7 @@ tempc <- ggplot(temp, aes(value, variable, color=Income)) +
   geom_point(alpha=0.5, size=5) + theme_classic() +
   scale_colour_discrete("Income") + xlab("FICO") + ylab("")+ 
   scale_x_continuous(limits=c(400, 800)) + 
+  theme(axis.text = element_text(size=10),         axis.text.y = element_text(size=10)) +
   labs(color="Cluster")# +
     # theme(axis.text.x=element_text(size=20),
     #     axis.text.y=element_text(size=20),
@@ -921,7 +937,8 @@ temp <- reshape2::melt(es_df, id.var='Income')
 
 tempd <- ggplot(temp, aes(value, variable, color=Income)) +
   geom_point(alpha=0.5, size=5) + theme_classic() +
-  scale_colour_discrete("Income") + xlab("EnergyScore") + ylab("")+ scale_x_continuous(limits=c(0, 100)) + labs(color="Cluster") 
+  scale_colour_discrete("Income") + xlab("EnergyScore") + ylab("")+ scale_x_continuous(limits=c(0, 100)) +
+  theme(axis.text = element_text(size=10),         axis.text.y = element_text(size=10))+ labs(color="Cluster") 
     # theme(axis.text.x=element_text(size=20),
     #     axis.text.y=element_text(size=20),
     #     plot.title = element_text(size=20),
@@ -947,7 +964,7 @@ In Figure \ref{fig:fpfig1} the thresholds are shown for Income and Race.
 
 
 
-```{r fpfig1, echo=FALSE, fig.width=10,fig.height=6,fig.cap="\\label{fig:fpfig1}False Positive Comparison"}
+```{r fpfig1, echo=FALSE, fig.width=10,fig.height=6,fig.cap="\\label{fig:fpfig1}Cutoff Comparisons"}
 
 
 grid.arrange(tempa, tempb, tempc, tempd, nrow=2, ncol=2)
@@ -1085,7 +1102,8 @@ temp <- reshape2::melt(fico_df, id.var='Education')
 tempe <- ggplot(temp, aes(value, variable, color=Education)) +
   geom_point(alpha=0.5, size=5) + theme_classic() +
   scale_colour_discrete("Education") + xlab("FICO") + ylab("")+ 
-  scale_x_continuous(limits=c(400, 800)) + 
+  scale_x_continuous(limits=c(400, 800)) +
+  theme(axis.text = element_text(size=10),         axis.text.y = element_text(size=10)) +
   #scale_x_continuous(limits=c(0, 100)) + 
   labs(color="Cluster") #+
     # theme(axis.text.x=element_text(size=20),
@@ -1106,7 +1124,8 @@ temp <- reshape2::melt(es_df, id.var='Education')
 
 
 tempf <- ggplot(temp, aes(value, variable, color=Education)) +
-  geom_point(alpha=0.5, size=5) + theme_classic() +
+  geom_point(alpha=0.5, size=5) + theme_classic() + 
+  theme(axis.text = element_text(size=10),         axis.text.y = element_text(size=10)) +
   scale_colour_discrete("Education") + xlab("EnergyScore") + ylab("")+ scale_x_continuous(limits=c(0, 100)) + labs(color="Cluster") #+
     # theme(axis.text.x=element_text(size=20),
     #     axis.text.y=element_text(size=20),
@@ -1241,6 +1260,7 @@ temp <- reshape2::melt(fico_df, id.var='HomeOwnership')
 tempg <- ggplot(temp, aes(value, variable, color=HomeOwnership)) +
   geom_point(alpha=0.5, size=5) + theme_classic() +
   scale_x_continuous(limits=c(400, 800)) + 
+  theme(axis.text = element_text(size=10),         axis.text.y = element_text(size=10)) +
   scale_colour_discrete("HomeOwnership") + xlab("FICO") + ylab("")+ 
   #scale_x_continuous(limits=c(0, 100)) + 
   labs(color="Cluster") #+
@@ -1261,7 +1281,8 @@ temp <- reshape2::melt(es_df, id.var='HomeOwnership')
 
 
 temph <- ggplot(temp, aes(value, variable, color=HomeOwnership)) +
-  geom_point(alpha=0.5, size=5) + theme_classic() +
+  geom_point(alpha=0.5, size=5) + theme_classic() + 
+  theme(axis.text = element_text(size=10),         axis.text.y = element_text(size=10)) +
   scale_colour_discrete("HomeOwnership") + xlab("EnergyScore") + ylab("")+ scale_x_continuous(limits=c(0, 100)) + labs(color="Cluster") #+
     # theme(axis.text.x=element_text(size=20),
     #     axis.text.y=element_text(size=20),
@@ -1274,6 +1295,13 @@ temph
 
 
 
+<style>
+#### Figure 5
+{
+   display: none;
+ }
+</style>
+
 
 
 
@@ -1285,7 +1313,7 @@ In Figure \ref{fig:fpfig2} the thresholds are shown for Education and Homeowners
 
 
 
-```{r fpfig2, echo=FALSE, fig.width=11,fig.height=6,fig.cap="\\label{fig:fpfig2}False Positive Comparison Continued"}
+```{r fpfig2, echo=FALSE, fig.width=11,fig.height=6,fig.cap="\\label{fig:fpfig2}Cutoff Comparison Continued"}
 
 
 grid.arrange(tempe, tempf, tempg, temph, nrow=2, ncol=2)
@@ -1293,9 +1321,14 @@ grid.arrange(tempe, tempf, tempg, temph, nrow=2, ncol=2)
 ```
 
 
+
+
+<style>
 ## Intra Group Percentiles
-
-
+{
+   display: none;
+ }
+</style>
 
 
 
@@ -1306,6 +1339,38 @@ grid.arrange(tempe, tempf, tempg, temph, nrow=2, ncol=2)
    display: none;
  }
 </style>
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+inter_var <- function(df) {
+  result <- df %>%
+    mutate(temp = .[[1]]) %>%
+    group_by(temp) %>%
+    summarize(
+      Variance_FICO = var(Percentile_FICO, na.rm=T),
+      Variance_ES = var(Percentile_ES, na.rm=T)
+    )
+  return(result)
+}
+
+intra_var <- function(df) {
+  
+  result <- df %>%
+    group_by(df[2]) %>%
+    summarize(
+      Variance_FICO = var(Percentile_FICO, na.rm=T),
+      Variance_ES = var(Percentile_ES, na.rm=T)
+    )
+  return(result)
+  
+}
+
+
+
+```
+
+
 
 
 
@@ -1324,8 +1389,13 @@ temp_combined <- temp_combined %>%
   dplyr::select(Race, variable, Percentile_FICO, Percentile_ES)
 
 p1 <- ggplot(data=temp_combined, aes(x=Percentile_FICO, y=variable, fill=Race))+
-    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
-    theme_minimal() + ggtitle("FICO")+ ylab("") + xlab("") + xlim(0,1) #+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+ 
+  theme_minimal() + 
+  theme(axis.text = element_text(size=15), 
+        axis.text.y = element_text(size=15),
+        legend.text = element_text(size=15)) +
+    
+  ggtitle("FICO")+ ylab("") + xlab("") + xlim(0,1) #+
     # theme(axis.text.x=element_text(size=20),
     #     axis.text.y=element_text(size=20),
     #     plot.title = element_text(size=20),
@@ -1334,8 +1404,11 @@ p1 <- ggplot(data=temp_combined, aes(x=Percentile_FICO, y=variable, fill=Race))+
 p1
 
 p2 <- ggplot(data=temp_combined, aes(x=Percentile_ES, y=variable, fill=Race))+
-    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
-    theme_minimal() + ggtitle("EnergyScore")+ ylab("") + xlab("")+ xlim(0,1) #+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+ 
+    theme_minimal() + 
+  theme(axis.text = element_text(size=15), 
+        axis.text.y = element_text(size=15),
+        legend.text = element_text(size=15)) +    ggtitle("EnergyScore")+ ylab("") + xlab("")+ xlim(0,1) #+
     # theme(axis.text.x=element_text(size=20),
     #     axis.text.y=element_text(size=20),
     #     plot.title = element_text(size=20),
@@ -1350,7 +1423,14 @@ p2
 
 
 
+```{r message=FALSE, warning=FALSE, include=FALSE}
 
+race_intra <- intra_var(temp_combined)
+
+race_inter <- inter_var(temp_combined)
+
+
+```
 
 
 
@@ -1379,8 +1459,11 @@ temp_combined <- temp_combined %>%
   dplyr::select(Income, variable, Percentile_FICO, Percentile_ES)
 
 p3 <- ggplot(data=temp_combined, aes(x=Percentile_FICO, y=variable, fill=Income))+
-    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
-    theme_minimal() + ggtitle("FICO")+ ylab("") + xlab("") + xlim(0,1)#+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+ theme_minimal() + 
+  theme(axis.text = element_text(size=15), 
+        axis.text.y = element_text(size=15),
+        legend.text = element_text(size=15)) +
+  ggtitle("FICO")+ ylab("") + xlab("") + xlim(0,1)#+
     # theme(axis.text.x=element_text(size=20),
     #     axis.text.y=element_text(size=20),
     #     plot.title = element_text(size=20),
@@ -1389,8 +1472,12 @@ p3 <- ggplot(data=temp_combined, aes(x=Percentile_FICO, y=variable, fill=Income)
 p3
 
 p4 <- ggplot(data=temp_combined, aes(x=Percentile_ES, y=variable, fill=Income))+
-    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
-    theme_minimal() + ggtitle("EnergyScore")+ ylab("") + xlab("")+ xlim(0,1) #+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+ 
+  theme_minimal() + 
+  theme(axis.text = element_text(size=15), 
+        axis.text.y = element_text(size=15),
+        legend.text = element_text(size=15)) +
+  ggtitle("EnergyScore")+ ylab("") + xlab("")+ xlim(0,1) #+
     # theme(axis.text.x=element_text(size=20),
     #     axis.text.y=element_text(size=20),
     #     plot.title = element_text(size=20),
@@ -1404,8 +1491,18 @@ p4
 ```
 
 
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+income_intra <- intra_var(temp_combined)
+income_inter <- inter_var(temp_combined)
+
+
+```
+
+
+
 <style>
-#### Figure 5
+#### Figure 6
 {
    display: none;
  }
@@ -1449,8 +1546,11 @@ temp_combined <- temp_combined %>%
   dplyr::select(Education, variable, Percentile_FICO, Percentile_ES)
 
 p1 <- ggplot(data=temp_combined, aes(x=Percentile_FICO, y=variable, fill=Education))+
-    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
-    theme_minimal() + ylab("") + xlab("") + xlim(0,1) + ggtitle("FICO")#+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+ 
+   theme_minimal() +
+  theme(axis.text = element_text(size=15), 
+        axis.text.y = element_text(size=15),
+        legend.text = element_text(size=10)) + ylab("") + xlab("") + xlim(0,1) + ggtitle("FICO")#+
   # theme(axis.text.x=element_text(size=20),
   #       axis.text.y=element_text(size=20),
   #       plot.title = element_text(size=20),
@@ -1460,8 +1560,12 @@ p1 <- ggplot(data=temp_combined, aes(x=Percentile_FICO, y=variable, fill=Educati
 p1
 
 p2 <- ggplot(data=temp_combined, aes(x=Percentile_ES, y=variable, fill=Education))+
-    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
-    theme_minimal() + ylab("") + xlab("")+ xlim(0,1) + ggtitle("EnergyScore")#+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+ 
+   theme_minimal() +
+  theme(axis.text = element_text(size=15), 
+        axis.text.y = element_text(size=15),
+        legend.text = element_text(size=10)) +
+    ylab("") + xlab("")+ xlim(0,1) + ggtitle("EnergyScore")#+
   # theme(axis.text.x=element_text(size=20),
   #       axis.text.y=element_text(size=20),
   #       plot.title = element_text(size=20),
@@ -1473,6 +1577,16 @@ p2
 
 
 ```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+edu_intra <- intra_var(temp_combined)
+edu_inter <- inter_var(temp_combined)
+
+
+```
+
 
 
 <style>
@@ -1500,8 +1614,11 @@ temp_combined <- temp_combined %>%
   dplyr::select(HomeOwnership, variable, Percentile_FICO, Percentile_ES)
 
 p3 <- ggplot(data=temp_combined, aes(x=Percentile_FICO, y=variable, fill=HomeOwnership))+
-    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
-    theme_minimal() + ylab("")  + xlim(0,1)+ xlab("")+ ggtitle("FICO")#+
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+ 
+   theme_minimal() +
+  theme(axis.text = element_text(size=15), 
+        axis.text.y = element_text(size=15),
+        legend.text = element_text(size=15))  + ylab("")  + xlim(0,1)+ xlab("")+ ggtitle("FICO")#+
   # theme(axis.text.x=element_text(size=20),
   #       axis.text.y=element_text(size=20),
   #       plot.title = element_text(size=20),
@@ -1510,8 +1627,11 @@ p3 <- ggplot(data=temp_combined, aes(x=Percentile_FICO, y=variable, fill=HomeOwn
 p3
 
 p4 <- ggplot(data=temp_combined, aes(x=Percentile_ES, y=variable, fill=HomeOwnership))+
-    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+
-    theme_minimal() +  ylab("") +  xlim(0,1) + xlab("")+ ggtitle("EnergyScore")# +
+    geom_dotplot(binaxis='y', stackdir='center', dotsize=2)+ 
+     theme_minimal() +
+  theme(axis.text = element_text(size=15), 
+        axis.text.y = element_text(size=15),
+        legend.text = element_text(size=15)) + ylab("") +  xlim(0,1) + xlab("")+ ggtitle("EnergyScore")# +
   # theme(axis.text.x=element_text(size=20),
   #       axis.text.y=element_text(size=20),
   #       plot.title = element_text(size=20),
@@ -1524,8 +1644,19 @@ p4
 
 ```
 
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+
+hs_intra <- intra_var(temp_combined)
+hs_inter <- inter_var(temp_combined)
+
+
+```
+
+
+
 <style>
-#### Figure 5
+#### Figure 7
 {
    display: none;
  }
@@ -1539,6 +1670,61 @@ grid.arrange(p1, p2, p3, p4, nrow=2, ncol=2)
 
 ```
 
+
+
+## Intra- and Inter-group
+
+show the inter- and intra-group variance for our bias metrics, respectively.  
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+temp_table <- rbind(edu_inter, hs_inter, income_inter, race_inter)
+
+kable( temp_table,
+  digits = 3, format.args = list(big.mark = ",",scientific = FALSE),
+ # list(race_table, hs_table),
+  caption = 'Inter-Group Variance') %>%
+    kable_paper("striped", full_width =T) %>%
+#  booktabs = TRUE, valign = 't') 
+  pack_rows("Education", 1, 4) %>%
+  pack_rows("Home Ownership", 5, 6) %>%
+  pack_rows("Income", 7,9) %>%
+  pack_rows("Race", 10,13) 
+```
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+temp_table <- rbind(edu_intra, hs_intra, income_intra, race_intra) 
+
+kable( temp_table,
+  digits = 3, format.args = list(big.mark = ",",scientific = FALSE),
+ # list(race_table, hs_table),
+  caption = 'Intra-Group Variance') %>%
+    kable_paper("striped", full_width =T) %>%
+#  booktabs = TRUE, valign = 't') 
+  pack_rows("Education", 1, 4) %>%
+  pack_rows("Home Ownership", 5, 8) %>%
+  pack_rows("Income", 9,12) %>%
+  pack_rows("Race", 13,16) 
+```
+
+
+
+
+
+
+
+
+
+
+
+
 ## False Positive Comparisons
 
 <style>
@@ -1551,7 +1737,7 @@ grid.arrange(p1, p2, p3, p4, nrow=2, ncol=2)
 
 
 <style>
-#### Figure 6
+#### Figure 8
 {
    display: none;
  }
@@ -1777,7 +1963,7 @@ grid.arrange(temp1, temp2, temp3, temp4, nrow=2, ncol=2)
 
 
 <style>
-#### Figure 7
+#### Figure 9
 {
    display: none;
  }
@@ -1981,6 +2167,10 @@ In Figure \ref{fig:fprace2} the false positives are shown for Race and Income
 grid.arrange(temp1, temp2, temp3, temp4, nrow=2, ncol=2)
 
 ```
+
+
+# Conclusion
+
 
 
 # Funding

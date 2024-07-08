@@ -18,7 +18,7 @@ The results of this study provide a quantitative comparison of the degree of dis
 ![Figure 6](whitepaper/figures/fig6.png)
 
 
-You can view the data tables here:
 
-- [Table 2 (PDF)](whitepaper/figures/table2.pdf)
-- [Table 2 (HTML)](whitepaper/figures/table2.html)
+
+Our results in [Table 2](whitepaper/figures/table2.pdf) show that for low income customers, total variance across all thresholds was over seven times lower for EnergyScore compared to FICO scores. 
+

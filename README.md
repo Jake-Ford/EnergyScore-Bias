@@ -12,3 +12,7 @@ This research aims to achieve two objectives:
 ## Results
 The results of this study provide a quantitative comparison of the degree of discrimination faced by different protected classes in this specific use case. The findings show that the machine learning model results in lower degrees of variance in various thresholds for most considered protected classes.
 
+# add a png from figs folder
+
+
+![Figure 1](whitepaper/figures/fig1.png)

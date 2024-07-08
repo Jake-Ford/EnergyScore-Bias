@@ -240,6 +240,11 @@ race_data <- joined %>%
 
 ```{r desctab, echo=FALSE,fig.cap="\\label{tab:desctab}Descriptive Statistics"}
 
+library(knitr)
+library(kableExtra)
+library(webshot)
+
+
 #Late
 late_table <- joined %>%
   mutate(Late_Payment = case_when(
@@ -298,7 +303,13 @@ temp <- rbind(temp, hs_table)
 temp <- rbind(temp, income_table)
 temp <- rbind(temp, edu_table)
 
-kable( temp,
+
+
+
+
+
+
+table1 <- kable( temp,
   digits = 3, format.args = list(big.mark = ",",scientific = FALSE),
  # list(race_table, hs_table),
   caption = 'Descriptive Statistics') %>%
@@ -307,9 +318,19 @@ kable( temp,
   pack_rows("Late Payment", 1, 2) %>%
   pack_rows("Race", 3, 6) %>%
   pack_rows("Home Ownershp", 7,8) %>%
-  pack_rows("Income", 9,10) %>%
-  pack_rows("Education", 11,15)
+  pack_rows("Income", 9,11) %>%
+  pack_rows("Education", 12,15)
 
+
+########################################################
+
+# # Save the table as an HTML file
+# html_file <- "whitepaper/figures/table1.html"
+# #save_kable(table1, file = html_file)
+# 
+# # Save the table as a PDF file
+# pdf_file <- "whitepaper/figures/table1.pdf"
+# webshot(html_file, pdf_file)
 
 ```
 
@@ -441,6 +462,13 @@ ggplotly(p)
 
 grid.arrange(profit_max_fico, profit_max_es, nrow=2)
 
+combined_plot <- grid.arrange(profit_max_fico, profit_max_es, nrow = 2)
+
+
+# save this png
+ggsave("whitepaper/figures/fig1.png",plot = combined_plot, width = 10, height = 10, units = "cm")
+
+
 ```
  
 
@@ -507,7 +535,20 @@ ggplot(temp, aes(x=new_bins, y=value, color=variable))+geom_line() +theme_classi
   xlab('FICO Score') + ylab('Fraction of group below') + labs(color='') + ggtitle("Cumulative Distribution Function")   +geom_vline(xintercept=700, linetype='dotted', col = 'black') +
   geom_hline(yintercept=temp$value[temp$new_bins==700 & temp$variable=="Total"], linetype='dotted',col='black')
 
+
+
 temp 
+
+temp <- ggplot(temp, aes(x=new_bins, y=value, color=variable))+geom_line() +theme_classic()+
+  xlab('FICO Score') + ylab('Fraction of group below') + labs(color='') + ggtitle("Cumulative Distribution Function")   +geom_vline(xintercept=700, linetype='dotted', col = 'black') +
+  geom_hline(yintercept=temp$value[temp$new_bins==700 & temp$variable=="Total"], linetype='dotted',col='black')
+
+
+
+
+# save this png
+ggsave("whitepaper/figures/fig2.png",plot = temp)
+
 ```
 
 
@@ -600,6 +641,13 @@ tp_plot_es <- ggplot(t, aes(x=value, y=EnergyScore, color=variable))+geom_line()
  
 ```{r equalop, echo=FALSE, fig.width=5,fig.height=4,fig.cap="\\label{fig:equalop}Equal Opportunity Threshold"}
 grid.arrange(tp_plot_fico, tp_plot_es, nrow=2)
+
+combined_plot <- grid.arrange(tp_plot_fico, tp_plot_es, nrow = 2)
+
+
+# save this png
+ggsave("whitepaper/figures/fig3.png",plot = combined_plot)
+
 
 ```
 
@@ -969,6 +1017,11 @@ In Figure \ref{fig:fpfig1} the thresholds are shown for Income and Race.
 
 grid.arrange(tempa, tempb, tempc, tempd, nrow=2, ncol=2)
 
+combined_plot <- grid.arrange(tempa, tempb, tempc, tempd, nrow = 2, ncol = 2)
+
+ggsave("whitepaper/figures/fig4.png",plot = combined_plot)
+
+
 ```
 
 
@@ -1318,6 +1371,12 @@ In Figure \ref{fig:fpfig2} the thresholds are shown for Education and Homeowners
 
 grid.arrange(tempe, tempf, tempg, temph, nrow=2, ncol=2)
 
+combined_plot <- grid.arrange(tempe, tempf, tempg, temph, nrow = 2, ncol = 2)
+
+ggsave("whitepaper/figures/fig5.png",plot = combined_plot, width = 10, height = 10, units = "cm")
+
+
+
 ```
 
 
@@ -1514,6 +1573,11 @@ income_inter <- inter_var(temp_combined)
 
 grid.arrange(p1, p2, p3, p4, nrow=2, ncol=2)
 
+combined_plot <- grid.arrange(p1, p2, p3, p4, nrow=2, ncol=2)
+
+ggsave("whitepaper/figures/fig6.png",plot = combined_plot)
+
+
 ```
 
 
@@ -1668,11 +1732,23 @@ hs_inter <- inter_var(temp_combined)
 
 grid.arrange(p1, p2, p3, p4, nrow=2, ncol=2)
 
+combined_plot <- grid.arrange(p1, p2, p3, p4, nrow=2, ncol=2)
+
+ggsave("whitepaper/figures/fig7.png",plot = combined_plot)
+
 ```
 
 
 
 ## Intra- and Inter-group
+
+<style>
+### Table 2
+{
+   display: none;
+ }
+</style>
+
 
 show the inter- and intra-group variance for our bias metrics, respectively.  
 
@@ -1683,7 +1759,7 @@ show the inter- and intra-group variance for our bias metrics, respectively.
 
 temp_table <- rbind(edu_inter, hs_inter, income_inter, race_inter)
 
-kable( temp_table,
+table2 <- kable( temp_table,
   digits = 3, format.args = list(big.mark = ",",scientific = FALSE),
  # list(race_table, hs_table),
   caption = 'Inter-Group Variance') %>%
@@ -1693,8 +1769,26 @@ kable( temp_table,
   pack_rows("Home Ownership", 5, 6) %>%
   pack_rows("Income", 7,9) %>%
   pack_rows("Race", 10,13) 
+
+table2
+
+# Save the table as an HTML file
+html_file <- "whitepaper/figures/table2.html"
+#save_kable(table1, file = html_file)
+
+# Save the table as a PDF file
+pdf_file <- "whitepaper/figures/table2.pdf"
+webshot(html_file, pdf_file)
+
 ```
 
+
+<style>
+### Table 3
+{
+   display: none;
+ }
+</style>
 
 
 ```{r echo=FALSE, message=FALSE, warning=FALSE}
@@ -1702,7 +1796,7 @@ kable( temp_table,
 
 temp_table <- rbind(edu_intra, hs_intra, income_intra, race_intra) 
 
-kable( temp_table,
+table3 <- kable( temp_table,
   digits = 3, format.args = list(big.mark = ",",scientific = FALSE),
  # list(race_table, hs_table),
   caption = 'Intra-Group Variance') %>%
@@ -1712,6 +1806,16 @@ kable( temp_table,
   pack_rows("Home Ownership", 5, 8) %>%
   pack_rows("Income", 9,12) %>%
   pack_rows("Race", 13,16) 
+
+table3 
+
+# Save the table as an HTML file
+html_file <- "whitepaper/figures/table3.html"
+#save_kable(table1, file = html_file)
+
+# Save the table as a PDF file
+pdf_file <- "whitepaper/figures/table3.pdf"
+webshot(html_file, pdf_file)
 ```
 
 
@@ -1950,6 +2054,10 @@ In Figure \ref{fig:fprace} the false positives are shown for Race and Income
 
 grid.arrange(temp1, temp2, temp3, temp4, nrow=2, ncol=2)
 
+combined_plot <- grid.arrange(temp1, temp2, temp3, temp4, nrow=2, ncol=2)
+
+ggsave("whitepaper/figures/fig8.png",plot = combined_plot)
+
 ```
 
 
@@ -2165,6 +2273,10 @@ In Figure \ref{fig:fprace2} the false positives are shown for Race and Income
 
 
 grid.arrange(temp1, temp2, temp3, temp4, nrow=2, ncol=2)
+
+combined_plot <- grid.arrange(temp1, temp2, temp3, temp4, nrow=2, ncol=2)
+
+ggsave("whitepaper/figures/fig9.png",plot = combined_plot)
 
 ```
 
